@@ -6,10 +6,9 @@ import time
 from datetime import datetime, timedelta
 from scipy.stats import poisson
 
-# Configuración principal con el nuevo nombre MRFUTBOL
+# Configuración principal con la marca MRFUTBOL
 st.set_page_config(page_title="MRFUTBOL - Miguel Ramirez", page_icon="⚽", layout="wide")
 
-# Memoria de sesión para que las notificaciones funcionen con 1 solo clic en celular y PC
 if "seguidos_portada" not in st.session_state:
     st.session_state["seguidos_portada"] = []
 if "memoria_eventos" not in st.session_state:
@@ -115,16 +114,14 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# CABECERA OFICIAL: MRFUTBOL + TU NOMBRE Y CORREO EN PEQUEÑO PERO VISIBLE
+# ENCABEZADO OFICIAL MRFUTBOL
 st.markdown("<div class='titulo-mrfutbol'>⚽ MRFUTBOL</div>", unsafe_allow_html=True)
 st.markdown("<div class='subtitulo-autor'>Miguel Ramirez &nbsp;|&nbsp; ✉️ angelramirezzmiguel2@gmail.com</div>", unsafe_allow_html=True)
 
-# Función para disparar alerta emergente en pantalla (Celular/PC) + Pitido sonoro
 def disparar_alerta_celular(titulo, mensaje, icono="🔔"):
     st.toast(f"**{titulo}**\n\n{mensaje}", icon=icono)
-    hora_actual = datetime.now().strftime("%H:%M:%S")
+    hora_actual = (datetime.utcnow() - timedelta(hours=6)).strftime("%H:%M:%S")
     st.session_state["historial_notificaciones"].insert(0, f"[{hora_actual}] {icono} **{titulo}**: {mensaje}")
-    # Sonido corto compatible con navegadores móviles y escritorio
     components.html("""
     <script>
     try {
@@ -255,20 +252,24 @@ def auditar_equipo_bd(nombre_equipo):
 
     return sot_base, xg_shot, etiqueta, es_colador, es_cerrojo
 
-def extraer_stat_live(team_dict, stat_names):
+def extraer_stat_espn(team_dict, stat_names):
     for st_item in team_dict.get("statistics", []):
         if st_item.get("name") in stat_names:
             try:
-                return float(st_item.get("displayValue", 0))
+                val = st_item.get("displayValue", "0")
+                return str(val)
             except:
-                return 0.0
-    return 0.0
+                return "0"
+    return "0"
 
-def calcular_grandes_chances(sot, tiros_totales, goles):
-    # Extrae o estima matemáticamente las Grandes Chances Creadas y Perdidas según presión al arco
-    creadas = max(goles, int(round((sot * 0.55) + (tiros_totales * 0.12))))
-    perdidas = max(0, creadas - goles)
-    return creadas, perdidas
+def formatear_fecha_local(iso_str):
+    try:
+        # Convierte la hora UTC de la API restando 6 horas para sincronizar con Centroamérica/Honduras y fecha local exacta
+        dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        dt_local = dt - timedelta(hours=6)
+        return dt_local.strftime("%d/%m %H:%M")
+    except:
+        return "Programado"
 
 @st.cache_data(ttl=60)
 def obtener_partidos_ligas(codigos_espn, dias=4):
@@ -300,26 +301,28 @@ def obtener_partidos_ligas(codigos_espn, dias=4):
 # ESTRUCTURA DE LAS 3 SECCIONES
 # =============================================================================
 sec_futbol, sec_apuestas, sec_live = st.tabs([
-    "⚽ 1. RESULTADOS Y NOTIFICACIONES DE PARTIDO", 
+    "⚽ 1. RESULTADOS Y ESTADÍSTICAS OFICIALES", 
     "🎯 2. PRE-APUESTAS OVER 1.5 (BIG DATA)", 
     "🚨 3. SCRAPING EN VIVO (MIN 18+ CADA 2 MIN)"
 ])
 
 # -----------------------------------------------------------------------------
-# SECCIÓN 1: PORTADA + GRANDES CHANCES PERDIDAS + NOTIFICACIÓN DE EVENTOS (1 CLIC)
+# SECCIÓN 1: PORTADA + BUSCADOR DE EQUIPO + ESTADÍSTICAS OFICIALES ESPN
 # -----------------------------------------------------------------------------
 with sec_futbol:
-    col_f1, col_f2 = st.columns([2, 2])
+    col_f1, col_f2, col_f3 = st.columns([2, 2, 2])
     with col_f1:
         modo_ligas_portada = st.radio(
-            "Mostrar en Portada:",
-            ["⭐ Champions + 5 Grandes Ligas", "🌍 Todas las 19 Ligas del Big Data"],
+            "Ligas en Portada:",
+            ["⭐ Champions + 5 Grandes", "🌍 Las 19 Ligas Big Data"],
             horizontal=True
         )
     with col_f2:
-        st.markdown("🔔 **Dale clic en `Sí` al lado de cualquier partido** y recibirás alertas automáticas de: **Inicio, Medio Tiempo, Goles, Gol Anulado (VAR), Roja y Final**.")
+        texto_busqueda = st.text_input("🔍 Buscar Equipo (Ej. Real Madrid, Arsenal...)", "")
+    with col_f3:
+        st.markdown("🔔 **Activa `Sí`** para alertas de Inicio, Medio Tiempo, Goles, VAR, Rojas y Final.")
 
-    if modo_ligas_portada == "⭐ Champions + 5 Grandes Ligas":
+    if modo_ligas_portada == "⭐ Champions + 5 Grandes":
         codigos_portada = ["uefa.champions", "eng.1", "esp.1", "ita.1", "ger.1", "fra.1"]
     else:
         codigos_portada = [l["espn"] for l in LIGAS_BIG_DATA]
@@ -331,15 +334,28 @@ with sec_futbol:
         if not eventos:
             continue
 
+        eventos_filtrados = []
+        for ev in eventos:
+            comp = ev.get("competitions", [{}])[0]
+            competitors = comp.get("competitors", [])
+            if len(competitors) == 2:
+                nom_l = competitors[0].get("team", {}).get("displayName", "")
+                nom_v = competitors[1].get("team", {}).get("displayName", "")
+                if not texto_busqueda or (texto_busqueda.lower() in nom_l.lower() or texto_busqueda.lower() in nom_v.lower()):
+                    eventos_filtrados.append(ev)
+
+        if not eventos_filtrados:
+            continue
+
         st.markdown(f"<div class='liga-header'>{nombre_liga}</div>", unsafe_allow_html=True)
 
-        for ev in eventos:
+        for ev in eventos_filtrados:
             ev_id = ev.get("id")
             comp = ev.get("competitions", [{}])[0]
             st_state = comp.get("status", {}).get("type", {}).get("state", "pre")
-            detalle_corto = comp.get("status", {}).get("type", {}).get("shortDetail", "")
             desc_estado = comp.get("status", {}).get("type", {}).get("description", "")
             reloj = comp.get("status", {}).get("displayClock", "")
+            iso_fecha = ev.get("date", "")
 
             competitors = comp.get("competitors", [])
             if len(competitors) == 2:
@@ -354,7 +370,6 @@ with sec_futbol:
                 gol_v = int(vis.get("score", 0) or 0)
                 nombre_cruce = f"{nom_l} vs {nom_v}"
 
-                # Contar tarjetas rojas para detector de eventos
                 detalles_partido = comp.get("details", [])
                 rojas_actuales = sum(1 for d in detalles_partido if d.get("redCard", False))
 
@@ -365,13 +380,9 @@ with sec_futbol:
                     badge_html = "<div class='status-badge'>FINAL</div>"
                     centro_html = f"{gol_l} - {gol_v}"
                 else:
-                    try:
-                        dt = datetime.fromisoformat(ev.get("date", "").replace("Z", "+00:00"))
-                        badge_html = f"<div class='status-badge'>{dt.strftime('%d/%m')}</div>"
-                        centro_html = dt.strftime("%H:%M")
-                    except:
-                        badge_html = f"<div class='status-badge'>{detalle_corto}</div>"
-                        centro_html = "vs"
+                    fecha_legible = formatear_fecha_local(iso_fecha)
+                    badge_html = f"<div class='status-badge'>{fecha_legible}</div>"
+                    centro_html = "vs"
 
                 col_card, col_bell = st.columns([10, 2])
                 with col_card:
@@ -388,8 +399,7 @@ with sec_futbol:
                     </div>
                     """, unsafe_allow_html=True)
 
-                    # DESPLEGABLE CON GRANDES CHANCES PERDIDAS Y EVENTOS DEL PARTIDO
-                    with st.expander(f"📊 Ver qué pasó: Goles, Rojas y Grandes Chances Perdidas ({nombre_cruce})"):
+                    with st.expander(f"📊 Estadísticas Oficiales ESPN: Goles, xG y Tiros ({nombre_cruce})"):
                         eventos_texto = []
                         for d in detalles_partido:
                             min_ev = d.get("clock", {}).get("displayValue", "")
@@ -404,34 +414,43 @@ with sec_futbol:
                                 eventos_texto.append(f"🟨 **Amarilla ({min_ev})**: {nom_jug}")
 
                         if eventos_texto:
-                            st.markdown("**📋 Incidencias Oficiales (Minuto a Minuto):**")
+                            st.markdown("**📋 Incidencias del Partido:**")
                             for ev_linea in eventos_texto:
                                 st.markdown(f"- {ev_linea}")
                         else:
                             st.caption("Sin goles ni tarjetas registradas hasta el momento.")
 
-                        pos_l = extraer_stat_live(loc, ["possessionPct"])
-                        pos_v = extraer_stat_live(vis, ["possessionPct"])
-                        sot_l = int(extraer_stat_live(loc, ["shotsOnTarget", "shotsOnGoal"]))
-                        sot_v = int(extraer_stat_live(vis, ["shotsOnTarget", "shotsOnGoal"]))
-                        tir_l = int(extraer_stat_live(loc, ["totalShots", "shots"]))
-                        tir_v = int(extraer_stat_live(vis, ["totalShots", "shots"]))
-                        cor_l = int(extraer_stat_live(loc, ["wonCorners", "corners"]))
-                        cor_v = int(extraer_stat_live(vis, ["wonCorners", "corners"]))
+                        xg_l = extraer_stat_espn(loc, ["expectedGoals", "xg"])
+                        xg_v = extraer_stat_espn(vis, ["expectedGoals", "xg"])
+                        pos_l = extraer_stat_espn(loc, ["possessionPct"])
+                        pos_v = extraer_stat_espn(vis, ["possessionPct"])
+                        tmeta_l = extraer_stat_espn(loc, ["shotsOnTarget", "shotsOnGoal"])
+                        tmeta_v = extraer_stat_espn(vis, ["shotsOnTarget", "shotsOnGoal"])
+                        oportunidades_l = extraer_stat_espn(loc, ["bigChancesCreated", "goalAttempts"])
+                        oportunidades_v = extraer_stat_espn(vis, ["bigChancesCreated", "goalAttempts"])
+                        esquinas_l = extraer_stat_espn(loc, ["wonCorners", "corners"])
+                        esquinas_v = extraer_stat_espn(vis, ["wonCorners", "corners"])
+                        pases_l = extraer_stat_espn(loc, ["passesCompleted", "completedPasses"])
+                        pases_v = extraer_stat_espn(vis, ["passesCompleted", "completedPasses"])
+                        duelos_l = extraer_stat_espn(loc, ["duelsWon", "groundDuelsWon"])
+                        duelos_v = extraer_stat_espn(vis, ["duelsWon", "groundDuelsWon"])
+                        atajadas_l = extraer_stat_espn(loc, ["saves"])
+                        atajadas_v = extraer_stat_espn(vis, ["saves"])
+                        faltas_l = extraer_stat_espn(loc, ["foulsCommitted", "fouls"])
+                        faltas_v = extraer_stat_espn(vis, ["foulsCommitted", "fouls"])
 
-                        # Cálculo de Grandes Chances Creadas y Perdidas
-                        gc_creadas_l, gc_perdidas_l = calcular_grandes_chances(sot_l, tir_l, gol_l)
-                        gc_creadas_v, gc_perdidas_v = calcular_grandes_chances(sot_v, tir_v, gol_v)
-
-                        df_stats_partido = pd.DataFrame([
-                            {"Estadística del Partido": "🔥 Grandes Chances Creadas", nom_l: gc_creadas_l, nom_v: gc_creadas_v},
-                            {"Estadística del Partido": "❌ Grandes Chances Perdidas (Falladas)", nom_l: gc_perdidas_l, nom_v: gc_perdidas_v},
-                            {"Estadística del Partido": "🎯 Tiros al Arco (SoT)", nom_l: sot_l, nom_v: sot_v},
-                            {"Estadística del Partido": "💥 Disparos Totales", nom_l: tir_l, nom_v: tir_v},
-                            {"Estadística del Partido": "🚩 Tiros de Esquina (Córners)", nom_l: cor_l, nom_v: cor_v},
-                            {"Estadística del Partido": "⚽ Posesión de Balón", nom_l: f"{pos_l}%", nom_v: f"{pos_v}%"},
+                        df_stats_espn = pd.DataFrame([
+                            {"Métrica Oficial (ESPN)": "Goles esperados", nom_l: xg_l if xg_l != "0" else "0.0", nom_v: xg_v if xg_v != "0" else "0.0"},
+                            {"Métrica Oficial (ESPN)": "Posesión", nom_l: f"{pos_l}%" if "%" not in pos_l else pos_l, nom_v: f"{pos_v}%" if "%" not in pos_v else pos_v},
+                            {"Métrica Oficial (ESPN)": "Tiros a meta", nom_l: tmeta_l, nom_v: tmeta_v},
+                            {"Métrica Oficial (ESPN)": "Oportunidades de gol creadas", nom_l: oportunidades_l, nom_v: oportunidades_v},
+                            {"Métrica Oficial (ESPN)": "Tiros de esquina ganados", nom_l: esquinas_l, nom_v: esquinas_v},
+                            {"Métrica Oficial (ESPN)": "Pases completos", nom_l: pases_l, nom_v: pases_v},
+                            {"Métrica Oficial (ESPN)": "Duelos ganados", nom_l: duelos_l, nom_v: duelos_v},
+                            {"Métrica Oficial (ESPN)": "Atajadas", nom_l: atajadas_l, nom_v: atajadas_v},
+                            {"Métrica Oficial (ESPN)": "Faltas cometidas", nom_l: faltas_l, nom_v: faltas_v},
                         ])
-                        st.table(df_stats_partido)
+                        st.table(df_stats_espn)
 
                 with col_bell:
                     ya_seguido = ev_id in st.session_state["seguidos_portada"]
@@ -441,48 +460,36 @@ with sec_futbol:
                         st.session_state["seguidos_portada"].append(ev_id)
                         st.session_state["memoria_eventos"][ev_id] = {
                             "state": st_state,
-                            "ht_notificado": ("Halftime" in desc_estado or "HT" in detalle_corto),
+                            "ht_notificado": ("Halftime" in desc_estado or "HT" in comp.get("status", {}).get("type", {}).get("shortDetail", "")),
                             "goles_l": gol_l,
                             "goles_v": gol_v,
                             "rojas": rojas_actuales
                         }
-                        disparar_alerta_celular(
-                            f"Seguimiento Activado: {nombre_cruce}",
-                            "Te avisaremos al instante: Inicio, Medio Tiempo, Goles, Gol Anulado, Rojas y Final.",
-                            "✅"
-                        )
+                        disparar_alerta_celular(f"Seguimiento Activado: {nombre_cruce}", "Te avisaremos de: Inicio, Medio Tiempo, Goles, VAR, Rojas y Final.", "✅")
                     elif not activar_si and ya_seguido:
                         st.session_state["seguidos_portada"].remove(ev_id)
 
-                    # MOTOR DE NOTIFICACIONES DE EVENTOS DEL PARTIDO (SI ESTÁ EN "SÍ")
                     if activar_si and ev_id in st.session_state["memoria_eventos"]:
                         mem = st.session_state["memoria_eventos"][ev_id]
-                        
-                        # 1. Empezó el partido
                         if mem["state"] == "pre" and st_state == "in":
                             disparar_alerta_celular(f"⏳ ¡EMPEZÓ EL PARTIDO!", f"{nombre_cruce} (0 - 0)", "🟢")
                         
-                        # 2. Medio Tiempo (HT)
-                        es_ht = ("Halftime" in desc_estado or "HT" in detalle_corto or "Medio" in detalle_corto)
+                        es_ht = ("Halftime" in desc_estado or "HT" in comp.get("status", {}).get("type", {}).get("shortDetail", "") or "Medio" in desc_estado)
                         if es_ht and not mem["ht_notificado"]:
                             disparar_alerta_celular(f"⏸️ MEDIO TIEMPO", f"{nombre_cruce} | Marcador: {gol_l} - {gol_v}", "⏱️")
                             mem["ht_notificado"] = True
 
-                        # 3. Gol o Gol Anulado (VAR)
                         if (gol_l + gol_v) > (mem["goles_l"] + mem["goles_v"]):
                             disparar_alerta_celular(f"⚽ ¡GOOOOL EN {nombre_cruce}!", f"Nuevo Marcador: {nom_l} {gol_l} - {gol_v} {nom_v} ({reloj})", "⚽")
                         elif (gol_l + gol_v) < (mem["goles_l"] + mem["goles_v"]):
                             disparar_alerta_celular(f"❌ ¡GOL ANULADO (VAR)!", f"Se corrige el marcador en {nombre_cruce}: {gol_l} - {gol_v} ({reloj})", "🚫")
 
-                        # 4. Tarjeta Roja
                         if rojas_actuales > mem["rojas"]:
                             disparar_alerta_celular(f"🟥 ¡TARJETA ROJA!", f"Expulsión en {nombre_cruce} ({reloj}) | Marcador: {gol_l}-{gol_v}", "🟥")
 
-                        # 5. Terminó el partido
                         if mem["state"] != "post" and st_state == "post":
                             disparar_alerta_celular(f"🏁 FINAL DEL PARTIDO", f"{nombre_cruce} terminó {gol_l} - {gol_v}", "🏁")
 
-                        # Actualizar memoria
                         st.session_state["memoria_eventos"][ev_id].update({
                             "state": st_state,
                             "goles_l": gol_l,
@@ -490,7 +497,6 @@ with sec_futbol:
                             "rojas": rojas_actuales
                         })
 
-    # Bandeja visible de notificaciones caídas en tu celular/PC
     if st.session_state["historial_notificaciones"]:
         with st.expander("📲 Bandeja de Notificaciones Recientes (Eventos y Alertas)", expanded=True):
             for notif in st.session_state["historial_notificaciones"][:8]:
@@ -501,7 +507,7 @@ with sec_futbol:
 # -----------------------------------------------------------------------------
 with sec_apuestas:
     st.subheader("🎯 Laboratorio de Pre-Apuesta Over 1.5 (Las 19 Ligas Oficiales Big Data)")
-    st.markdown("Filtra **únicamente partidos antes de empezar (Pre-Apuesta)** con las reglas de tu archivo `.ini`: **SoT >= 5.5**, **xG/Shot >= 0.12**, **Reyes de Casa vs Coladores** y **Anti-Cerrojo**.")
+    st.markdown("Filtra **únicamente partidos antes de empezar (Pre-Apuesta)** aplicando las reglas del archivo `.ini`: **SoT >= 5.5**, **xG/Shot >= 0.12**, **Reyes de Casa vs Coladores** y **Anti-Cerrojo**.")
 
     opciones_ligas_pre = [l["id"] for l in LIGAS_BIG_DATA]
     ligas_seleccionadas_pre = st.multiselect(
@@ -529,12 +535,8 @@ with sec_apuestas:
                     if len(competitors) == 2:
                         nom_local = competitors[0].get("team", {}).get("displayName", "Local")
                         nom_visita = competitors[1].get("team", {}).get("displayName", "Visita")
-                        fecha_iso = evento.get("date", "")
-                        try:
-                            dt = datetime.fromisoformat(fecha_iso.replace("Z", "+00:00"))
-                            fecha_str = dt.strftime("%d/%m %H:%M")
-                        except:
-                            fecha_str = "Próximo"
+                        iso_fecha = evento.get("date", "")
+                        fecha_str = formatear_fecha_local(iso_fecha)
 
                         sot_l, xgs_l, tag_l, col_l, cer_l = auditar_equipo_bd(nom_local)
                         sot_v, xgs_v, tag_v, col_v, cer_v = auditar_equipo_bd(nom_visita)
@@ -597,11 +599,11 @@ with sec_apuestas:
                 st.info("No hay partidos pendientes por iniciar en este rango.")
 
 # -----------------------------------------------------------------------------
-# SECCIÓN 3: SCRAPING EN VIVO DISTINTO (MINUTO 18+ Y REPORTE CADA 2 MINUTOS)
+# SECCIÓN 3: SCRAPING EN VIVO (MINUTO 18+ CADA 2 MINUTOS CON MÉTRICAS ESPN)
 # -----------------------------------------------------------------------------
 with sec_live:
     st.subheader("🚨 Scraping en Vivo Automático (Minuto 18+ | Reporte cada 2 Minutos)")
-    st.markdown("Este motor es **exclusivo para apuestas en vivo**: monitorea desde el **minuto 18 en adelante** y se actualiza **cada 2 minutos (120 seg)** reportando cómo van los **Disparos, Tiros al Arco, Grandes Chances Creadas y Perdidas**.")
+    st.markdown("Motor exclusivo para **apuestas en vivo**: monitorea desde el **minuto 18 en adelante** y se actualiza **cada 2 minutos (120 seg)** reportando Tiros a meta, xG, Posesión y Oportunidades creadas.")
 
     col_s1, col_s2 = st.columns(2)
     with col_s1:
@@ -635,19 +637,11 @@ with sec_live:
                 goles_v = int(visita.get("score", 0) or 0)
                 goles_tot = goles_l + goles_v
 
-                tiros_l = int(extraer_stat_live(local, ["totalShots", "shots"]))
-                tiros_v = int(extraer_stat_live(visita, ["totalShots", "shots"]))
-                sot_l = int(extraer_stat_live(local, ["shotsOnTarget", "shotsOnGoal"]))
-                sot_v = int(extraer_stat_live(visita, ["shotsOnTarget", "shotsOnGoal"]))
-
-                sot_live = sot_l + sot_v
-                tiros_live = tiros_l + tiros_v
-
-                # Grandes Chances en vivo
-                gc_creadas_l, gc_perdidas_l = calcular_grandes_chances(sot_l, tiros_l, goles_l)
-                gc_creadas_v, gc_perdidas_v = calcular_grandes_chances(sot_v, tiros_v, goles_v)
-                gc_totales = gc_creadas_l + gc_creadas_v
-                gc_perdidas_tot = gc_perdidas_l + gc_perdidas_v
+                tmeta_l = int(extraer_stat_espn(local, ["shotsOnTarget", "shotsOnGoal"]) or 0)
+                tmeta_v = int(extraer_stat_espn(visita, ["shotsOnTarget", "shotsOnGoal"]) or 0)
+                tmeta_total = tmeta_l + tmeta_v
+                xg_l_live = extraer_stat_espn(local, ["expectedGoals", "xg"])
+                xg_v_live = extraer_stat_espn(visita, ["expectedGoals", "xg"])
 
                 sot_h_l, xgs_l, tag_l, col_l, cer_l = auditar_equipo_bd(nom_l)
                 sot_h_v, xgs_v, tag_v, col_v, cer_v = auditar_equipo_bd(nom_v)
@@ -663,26 +657,25 @@ with sec_live:
                     if min_num < 18:
                         veredicto_scraping = f"🕒 Calentando ({reloj} < 18')"
                     else:
-                        # A partir del minuto 18 reporta cada 2 minutos cómo van los disparos y grandes chances
                         if goles_tot == 0:
-                            if sot_live >= 3 or gc_totales >= 2 or tiros_live >= 6 or sot_h_l >= 6.5 or col_v:
-                                veredicto_scraping = "🚨 ¡METER OVER 0.5 HT / 1.5 LIVE! (0-0 con Grandes Chances)"
+                            if tmeta_total >= 3 or sot_h_l >= 6.5 or col_v:
+                                veredicto_scraping = "🚨 ¡METER OVER 0.5 HT / 1.5 LIVE! (0-0 con Asedio)"
                                 msg_scrap = (
                                     f"⏱️ Min {reloj} | {nom_l} 0-0 {nom_v} ({nombre_liga}) -> "
-                                    f"💥 Disparos: {tiros_live} | 🎯 Al Arco: {sot_live} | "
-                                    f"🔥 Grandes Chances: {gc_totales} ({gc_perdidas_tot} falladas) -> ¡METER OVER 0.5 / 1.5!"
+                                    f"🎯 Tiros a meta: {tmeta_total} | xG: {xg_l_live} - {xg_v_live} | "
+                                    f"👉 ¡METER OVER 0.5 / 1.5!"
                                 )
                                 reportes_minuto_18.append(msg_scrap)
                                 disparar_alerta_celular(f"SCRAPING MIN 18+ ({nom_l} vs {nom_v})", msg_scrap, "🚨")
                             else:
-                                veredicto_scraping = f"👀 Monitoreando 0-0 ({reloj}) | {tiros_live} disp, {gc_totales} Grandes Chances"
+                                veredicto_scraping = f"👀 Monitoreando 0-0 ({reloj}) | Tiros meta: {tmeta_total}"
                         elif goles_tot == 1 and min_num <= 78:
-                            if sot_live >= 4 or gc_totales >= 3 or tiros_live >= 8:
-                                veredicto_scraping = "🔥 ¡METER OVER 1.5 / 2.5 LIVE! (1 Gol y Sigue el Asedio)"
+                            if tmeta_total >= 4 or sot_h_l >= 6.5:
+                                veredicto_scraping = "🔥 ¡METER OVER 1.5 / 2.5 LIVE! (Partido Roto)"
                                 msg_scrap = (
                                     f"⏱️ Min {reloj} | {nom_l} {goles_l}-{goles_v} {nom_v} -> "
-                                    f"💥 Disparos: {tiros_live} | 🎯 Al Arco: {sot_live} | "
-                                    f"🔥 Grandes Chances: {gc_totales} ({gc_perdidas_tot} falladas) -> ¡METER OVER 1.5 / 2.5!"
+                                    f"🎯 Tiros a meta: {tmeta_total} | xG: {xg_l_live} - {xg_v_live} | "
+                                    f"👉 ¡METER OVER 1.5 / 2.5!"
                                 )
                                 reportes_minuto_18.append(msg_scrap)
                                 disparar_alerta_celular(f"SCRAPING MIN 18+ ({nom_l} vs {nom_v})", msg_scrap, "🔥")
@@ -700,10 +693,8 @@ with sec_live:
                     "Liga": nombre_liga,
                     "Partido": f"{nom_l} vs {nom_v}",
                     "Marcador": f"{goles_l} - {goles_v}",
-                    "💥 Disparos": tiros_live,
-                    "🎯 Tiros al Arco": sot_live,
-                    "🔥 Grandes Chances": gc_totales,
-                    "❌ Chances Perdidas": gc_perdidas_tot,
+                    "🎯 Tiros a Meta": tmeta_total,
+                    "⚽ Goles Esperados (xG)": f"{xg_l_live} - {xg_v_live}",
                     "⚡ VEREDICTO SCRAPING (MIN 18+)": veredicto_scraping
                 })
 
@@ -712,12 +703,11 @@ with sec_live:
         for rep in reportes_minuto_18:
             st.error(rep)
     else:
-        st.info("📡 Escáner Minuto 18+ activo. Cada 2 minutos audita los disparos y Grandes Chances de los partidos en curso.")
+        st.success("📡 Escáner Minuto 18+ activo. Cada 2 minutos audita las métricas oficiales de ESPN.")
 
     if tabla_scraping:
         st.dataframe(pd.DataFrame(tabla_scraping), use_container_width=True, hide_index=True)
 
-    # Ciclo exacto de 2 minutos (120 segundos) para el Scraping en vivo
     if activar_scraping_2min:
         time.sleep(120)
         st.rerun()
