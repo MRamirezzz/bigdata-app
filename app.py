@@ -118,7 +118,16 @@ st.markdown("""
 st.markdown("<div class='titulo-mrfutbol'>⚽ MRFUTBOL</div>", unsafe_allow_html=True)
 st.markdown("<div class='subtitulo-autor'>Miguel Ramirez &nbsp;|&nbsp; ✉️ angelramirezzmiguel2@gmail.com</div>", unsafe_allow_html=True)
 
+# Barra de control general de alertas (Interruptor Maestro)
+col_master1, col_master2 = st.columns([3, 1])
+with col_master1:
+    st.info("💡 **Consejo:** Usa el interruptor de la derecha para encender o silenciar las alertas generales de la app.")
+with col_master2:
+    master_sound = st.toggle("🔔 Alertas Generales Activas", value=True)
+
 def disparar_alerta_celular(titulo, mensaje, icono="🔔"):
+    if not master_sound:
+        return
     st.toast(f"**{titulo}**\n\n{mensaje}", icon=icono)
     hora_actual = (datetime.utcnow() - timedelta(hours=6)).strftime("%H:%M:%S")
     st.session_state["historial_notificaciones"].insert(0, f"[{hora_actual}] {icono} **{titulo}**: {mensaje}")
@@ -191,25 +200,6 @@ TOP_DISPARADORES = {
     "Paris Saint-Germain": {"sot": 7.1, "xg_shot": 0.15, "tag": "👑 Rey Casa"},
     "AS Monaco": {"sot": 6.1, "xg_shot": 0.13, "tag": "👑 Rey Casa"},
     "Real Madrid": {"sot": 6.8, "xg_shot": 0.15, "tag": "👑 Rey Casa"},
-    "Wil": {"sot": 5.8, "xg_shot": 0.13, "tag": "👹 Monstruo Visita"},
-    "St. Gallen": {"sot": 5.8, "xg_shot": 0.13, "tag": "👹 Monstruo Visita"},
-    "Ajax": {"sot": 6.2, "xg_shot": 0.14, "tag": "👹 Monstruo Visita"},
-    "Dordrecht": {"sot": 5.8, "xg_shot": 0.13, "tag": "👹 Monstruo Visita"},
-    "Molde": {"sot": 6.0, "xg_shot": 0.13, "tag": "👹 Monstruo Visita"},
-    "Raufoss": {"sot": 5.7, "xg_shot": 0.12, "tag": "👹 Monstruo Visita"},
-    "Hoffenheim": {"sot": 5.7, "xg_shot": 0.13, "tag": "👹 Monstruo Visita"},
-    "Magdeburg": {"sot": 5.8, "xg_shot": 0.13, "tag": "👹 Monstruo Visita"},
-    "Wolfsberger": {"sot": 5.7, "xg_shot": 0.13, "tag": "👹 Monstruo Visita"},
-    "Aston Villa": {"sot": 5.8, "xg_shot": 0.13, "tag": "👹 Monstruo Visita"},
-    "Genk": {"sot": 5.9, "xg_shot": 0.13, "tag": "👹 Monstruo Visita"},
-    "Rangers": {"sot": 6.1, "xg_shot": 0.13, "tag": "👹 Monstruo Visita"},
-    "Trabzonspor": {"sot": 5.7, "xg_shot": 0.12, "tag": "👹 Monstruo Visita"},
-    "Braga": {"sot": 5.9, "xg_shot": 0.13, "tag": "👹 Monstruo Visita"},
-    "Portland Timbers": {"sot": 5.8, "xg_shot": 0.13, "tag": "👹 Monstruo Visita"},
-    "AC Milan": {"sot": 6.0, "xg_shot": 0.13, "tag": "👹 Monstruo Visita"},
-    "Rennes": {"sot": 5.7, "xg_shot": 0.12, "tag": "👹 Monstruo Visita"},
-    "Villarreal": {"sot": 5.9, "xg_shot": 0.14, "tag": "👹 Monstruo Visita"},
-    "Santos": {"sot": 5.6, "xg_shot": 0.12, "tag": "👹 Monstruo Visita"},
 }
 
 DEFENSAS_COLADOR = [
@@ -264,7 +254,6 @@ def extraer_stat_espn(team_dict, stat_names):
 
 def formatear_fecha_local(iso_str):
     try:
-        # Convierte la hora UTC de la API restando 6 horas para sincronizar con Centroamérica/Honduras y fecha local exacta
         dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
         dt_local = dt - timedelta(hours=6)
         return dt_local.strftime("%d/%m %H:%M")
@@ -301,32 +290,23 @@ def obtener_partidos_ligas(codigos_espn, dias=4):
 # ESTRUCTURA DE LAS 3 SECCIONES
 # =============================================================================
 sec_futbol, sec_apuestas, sec_live = st.tabs([
-    "⚽ 1. RESULTADOS Y ESTADÍSTICAS OFICIALES", 
+    "⚽ 1. RESULTADOS Y ESTADÍSTICAS", 
     "🎯 2. PRE-APUESTAS OVER 1.5 (BIG DATA)", 
     "🚨 3. SCRAPING EN VIVO (MIN 18+ CADA 2 MIN)"
 ])
 
 # -----------------------------------------------------------------------------
-# SECCIÓN 1: PORTADA + BUSCADOR DE EQUIPO + ESTADÍSTICAS OFICIALES ESPN
+# SECCIÓN 1: PORTADA + BUSCADOR DE EQUIPO (EN LAS 19 LIGAS) + GOLES Y TARJETAS
 # -----------------------------------------------------------------------------
 with sec_futbol:
-    col_f1, col_f2, col_f3 = st.columns([2, 2, 2])
+    col_f1, col_f2 = st.columns([2, 3])
     with col_f1:
-        modo_ligas_portada = st.radio(
-            "Ligas en Portada:",
-            ["⭐ Champions + 5 Grandes", "🌍 Las 19 Ligas Big Data"],
-            horizontal=True
-        )
+        texto_busqueda = st.text_input("🔍 Buscar Equipo en las 19 Ligas (Ej. Real Madrid, PSV, Ajax...)", "")
     with col_f2:
-        texto_busqueda = st.text_input("🔍 Buscar Equipo (Ej. Real Madrid, Arsenal...)", "")
-    with col_f3:
-        st.markdown("🔔 **Activa `Sí`** para alertas de Inicio, Medio Tiempo, Goles, VAR, Rojas y Final.")
+        st.markdown("🔔 **Activa `Sí`** para seguir individualmente los partidos que te interesan.")
 
-    if modo_ligas_portada == "⭐ Champions + 5 Grandes":
-        codigos_portada = ["uefa.champions", "eng.1", "esp.1", "ita.1", "ger.1", "fra.1"]
-    else:
-        codigos_portada = [l["espn"] for l in LIGAS_BIG_DATA]
-
+    # El buscador rastrea siempre las 19 ligas completas + Champions
+    codigos_portada = [l["espn"] for l in LIGAS_BIG_DATA]
     datos_portada = obtener_partidos_ligas(codigos_portada, dias=4)
 
     for nombre_liga, contenido in datos_portada.items():
@@ -399,7 +379,8 @@ with sec_futbol:
                     </div>
                     """, unsafe_allow_html=True)
 
-                    with st.expander(f"📊 Estadísticas Oficiales ESPN: Goles, xG y Tiros ({nombre_cruce})"):
+                    # DESPLEGABLE CON LO MÁS IMPORTANTE: GOLES, TARJETAS, CÓRNERES Y POSESIÓN
+                    with st.expander(f"📊 Resumen Clave: Goles, Tarjetas y Córneres ({nombre_cruce})"):
                         eventos_texto = []
                         for d in detalles_partido:
                             min_ev = d.get("clock", {}).get("displayValue", "")
@@ -414,43 +395,22 @@ with sec_futbol:
                                 eventos_texto.append(f"🟨 **Amarilla ({min_ev})**: {nom_jug}")
 
                         if eventos_texto:
-                            st.markdown("**📋 Incidencias del Partido:**")
+                            st.markdown("**📋 Goles y Tarjetas:**")
                             for ev_linea in eventos_texto:
                                 st.markdown(f"- {ev_linea}")
                         else:
-                            st.caption("Sin goles ni tarjetas registradas hasta el momento.")
+                            st.caption("Sin goles ni tarjetas registradas.")
 
-                        xg_l = extraer_stat_espn(loc, ["expectedGoals", "xg"])
-                        xg_v = extraer_stat_espn(vis, ["expectedGoals", "xg"])
                         pos_l = extraer_stat_espn(loc, ["possessionPct"])
                         pos_v = extraer_stat_espn(vis, ["possessionPct"])
-                        tmeta_l = extraer_stat_espn(loc, ["shotsOnTarget", "shotsOnGoal"])
-                        tmeta_v = extraer_stat_espn(vis, ["shotsOnTarget", "shotsOnGoal"])
-                        oportunidades_l = extraer_stat_espn(loc, ["bigChancesCreated", "goalAttempts"])
-                        oportunidades_v = extraer_stat_espn(vis, ["bigChancesCreated", "goalAttempts"])
                         esquinas_l = extraer_stat_espn(loc, ["wonCorners", "corners"])
                         esquinas_v = extraer_stat_espn(vis, ["wonCorners", "corners"])
-                        pases_l = extraer_stat_espn(loc, ["passesCompleted", "completedPasses"])
-                        pases_v = extraer_stat_espn(vis, ["passesCompleted", "completedPasses"])
-                        duelos_l = extraer_stat_espn(loc, ["duelsWon", "groundDuelsWon"])
-                        duelos_v = extraer_stat_espn(vis, ["duelsWon", "groundDuelsWon"])
-                        atajadas_l = extraer_stat_espn(loc, ["saves"])
-                        atajadas_v = extraer_stat_espn(vis, ["saves"])
-                        faltas_l = extraer_stat_espn(loc, ["foulsCommitted", "fouls"])
-                        faltas_v = extraer_stat_espn(vis, ["foulsCommitted", "fouls"])
 
-                        df_stats_espn = pd.DataFrame([
-                            {"Métrica Oficial (ESPN)": "Goles esperados", nom_l: xg_l if xg_l != "0" else "0.0", nom_v: xg_v if xg_v != "0" else "0.0"},
-                            {"Métrica Oficial (ESPN)": "Posesión", nom_l: f"{pos_l}%" if "%" not in pos_l else pos_l, nom_v: f"{pos_v}%" if "%" not in pos_v else pos_v},
-                            {"Métrica Oficial (ESPN)": "Tiros a meta", nom_l: tmeta_l, nom_v: tmeta_v},
-                            {"Métrica Oficial (ESPN)": "Oportunidades de gol creadas", nom_l: oportunidades_l, nom_v: oportunidades_v},
-                            {"Métrica Oficial (ESPN)": "Tiros de esquina ganados", nom_l: esquinas_l, nom_v: esquinas_v},
-                            {"Métrica Oficial (ESPN)": "Pases completos", nom_l: pases_l, nom_v: pases_v},
-                            {"Métrica Oficial (ESPN)": "Duelos ganados", nom_l: duelos_l, nom_v: duelos_v},
-                            {"Métrica Oficial (ESPN)": "Atajadas", nom_l: atajadas_l, nom_v: atajadas_v},
-                            {"Métrica Oficial (ESPN)": "Faltas cometidas", nom_l: faltas_l, nom_v: faltas_v},
+                        df_resumen_clave = pd.DataFrame([
+                            {"Estadística Clave": "Posesión de Balón", nom_l: f"{pos_l}%" if "%" not in pos_l else pos_l, nom_v: f"{pos_v}%" if "%" not in pos_v else pos_v},
+                            {"Estadística Clave": "Tiros de Esquina (Córneres)", nom_l: esquinas_l, nom_v: esquinas_v},
                         ])
-                        st.table(df_stats_espn)
+                        st.table(df_resumen_clave)
 
                 with col_bell:
                     ya_seguido = ev_id in st.session_state["seguidos_portada"]
@@ -465,7 +425,7 @@ with sec_futbol:
                             "goles_v": gol_v,
                             "rojas": rojas_actuales
                         }
-                        disparar_alerta_celular(f"Seguimiento Activado: {nombre_cruce}", "Te avisaremos de: Inicio, Medio Tiempo, Goles, VAR, Rojas y Final.", "✅")
+                        disparar_alerta_celular(f"Seguimiento Activado: {nombre_cruce}", "Avisos activos: Inicio, Medio Tiempo, Goles, Rojas y Final.", "✅")
                     elif not activar_si and ya_seguido:
                         st.session_state["seguidos_portada"].remove(ev_id)
 
@@ -603,7 +563,7 @@ with sec_apuestas:
 # -----------------------------------------------------------------------------
 with sec_live:
     st.subheader("🚨 Scraping en Vivo Automático (Minuto 18+ | Reporte cada 2 Minutos)")
-    st.markdown("Motor exclusivo para **apuestas en vivo**: monitorea desde el **minuto 18 en adelante** y se actualiza **cada 2 minutos (120 seg)** reportando Tiros a meta, xG, Posesión y Oportunidades creadas.")
+    st.markdown("Motor exclusivo para **apuestas en vivo**: monitorea desde el **minuto 18 en adelante** y se actualiza **cada 2 minutos (120 seg)** reportando Tiros a meta y xG en directo.")
 
     col_s1, col_s2 = st.columns(2)
     with col_s1:
