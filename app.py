@@ -6,36 +6,35 @@ import time
 from datetime import datetime, timedelta
 from scipy.stats import poisson
 
-# Configuración de la página
+# Configuración principal
 st.set_page_config(page_title="Portal Fútbol & Big Data - Miguel Ramirez", page_icon="⚽", layout="wide")
 
-# Inicializar la lista de partidos que el jefe quiere seguir con notificación
 if "seguidos" not in st.session_state:
     st.session_state["seguidos"] = []
 
-# Estilos CSS estilo app deportiva oscura
+# Estilos visuales oscuros para tarjetas y detalles del partido
 st.markdown("""
 <style>
 .liga-header {
     background-color: #1a1c23;
     color: #ffffff;
-    padding: 12px 18px;
-    border-radius: 10px 10px 0 0;
+    padding: 10px 16px;
+    border-radius: 8px;
     font-weight: 700;
-    font-size: 17px;
-    border-bottom: 2px solid #00ffcc;
-    margin-top: 18px;
+    font-size: 16px;
+    border-left: 4px solid #00ffcc;
+    margin-top: 16px;
+    margin-bottom: 6px;
 }
 .match-card {
     background-color: #121318;
-    padding: 10px 14px;
-    border-bottom: 1px solid #222530;
+    padding: 8px 14px;
     border-radius: 6px;
-    margin-bottom: 4px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     color: #e0e0e0;
+    border: 1px solid #222530;
 }
 .status-badge {
     background-color: #262936;
@@ -78,31 +77,31 @@ st.markdown("""
 }
 .score-box {
     background-color: #1f222d;
-    padding: 5px 14px;
-    border-radius: 8px;
+    padding: 4px 12px;
+    border-radius: 6px;
     font-weight: 800;
-    font-size: 16px;
-    color: #ffffff;
-    min-width: 75px;
+    font-size: 15px;
+    color: #00ffcc;
+    min-width: 70px;
     text-align: center;
 }
 .team-logo {
-    width: 26px;
-    height: 26px;
+    width: 24px;
+    height: 24px;
     object-fit: contain;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# Cabecera principal limpia (SIN FUEGOS)
-st.title("⚽ PORTAL DE FÚTBOL EUROPEO & CENTRAL BIG DATA")
+# Cabecera limpia con tu nombre
+st.title("⚽ PORTAL DE FÚTBOL & CENTRAL BIG DATA")
 st.markdown("<h2 style='text-align: center; color: #00ffcc; letter-spacing: 2px;'>CREADO POR MIGUEL RAMIREZ</h2>", unsafe_allow_html=True)
 
-# Permiso del navegador para mostrar notificaciones emergentes legibles
+# Botón para autorizar notificaciones del navegador
 components.html("""
 <div style="display: flex; justify-content: flex-end; align-items: center; font-family: sans-serif;">
     <button id="btn-permiso" onclick="pedirPermiso()" style="background-color: #1f222d; color: #00ffcc; border: 1px solid #00ffcc; padding: 6px 14px; border-radius: 8px; font-weight: bold; cursor: pointer;">
-        🔔 Habilitar Sonido/Avisos en este Dispositivo
+        🔔 Habilitar Avisos en este Dispositivo
     </button>
 </div>
 <script>
@@ -112,22 +111,22 @@ function pedirPermiso() {
     } else {
         Notification.requestPermission().then(function (permission) {
             if (permission === "granted") {
-                document.getElementById("btn-permiso").innerText = "✅ Dispositivo Listo para Recibir Alertas";
+                document.getElementById("btn-permiso").innerText = "✅ Avisos Activados";
                 new Notification("⚽ Central Big Data - Miguel Ramirez", {
-                    body: "Ahora marca la campanita 🔔 en los partidos que quieras vigilar."
+                    body: "Marca la casilla 🔔 Seguir en los partidos que quieras monitorear."
                 });
             }
         });
     }
 }
 </script>
-""", height=42)
+""", height=40)
 
 def enviar_notificacion_legible(partido, detalle_alerta):
     components.html(f"""
     <script>
     if ("Notification" in window && Notification.permission === "granted") {{
-        new Notification("🚨 ALERTA EN: {partido}", {{
+        new Notification("🚨 ALERTA EN VIVO: {partido}", {{
             body: "{detalle_alerta}"
         }});
     }}
@@ -135,47 +134,87 @@ def enviar_notificacion_legible(partido, detalle_alerta):
     """, height=0)
 
 # =============================================================================
-# LIGAS: CHAMPIONS LEAGUE + LAS 5 GRANDES LIGAS DE EUROPA Y BASE DE DATOS (.INI)
+# LAS 19 LIGAS OFICIALES DEL ARCHIVO BIG DATA (.INI) + CHAMPIONS LEAGUE
 # =============================================================================
-LIGAS_PRINCIPALES = [
-    {"id": "🏆 Champions League", "espn": "uefa.champions", "efec": "85%"},
-    {"id": "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League", "espn": "eng.1", "efec": "80%"},
-    {"id": "🇪🇸 LaLiga", "espn": "esp.1", "efec": "79%"},
-    {"id": "🇮🇹 Serie A", "espn": "ita.1", "efec": "81%"},
-    {"id": "🇩🇪 Bundesliga", "espn": "ger.1", "efec": "86%"},
-    {"id": "🇫🇷 Ligue 1", "espn": "fra.1", "efec": "80%"},
+LIGAS_BIG_DATA = [
+    {"id": "🏆 Champions League", "espn": "uefa.champions", "efec": "85%", "bloque": "Élite"},
+    {"id": "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League (ING1)", "espn": "eng.1", "efec": "80%", "bloque": "Top 5"},
+    {"id": "🇪🇸 LaLiga (ESP1)", "espn": "esp.1", "efec": "79%", "bloque": "Top 5"},
+    {"id": "🇮🇹 Serie A (ITA1)", "espn": "ita.1", "efec": "81%", "bloque": "Top 5"},
+    {"id": "🇩🇪 Bundesliga (ALE1)", "espn": "ger.1", "efec": "86%", "bloque": "Hiper-Ofensiva"},
+    {"id": "🇫🇷 Ligue 1 (FRA1)", "espn": "fra.1", "efec": "80%", "bloque": "Top 5"},
+    {"id": "🇨🇭 Challenge League (SUI2)", "espn": "sui.2", "efec": "91%", "bloque": "Hiper-Ofensiva"},
+    {"id": "🇨🇭 Super League (SUI1)", "espn": "sui.1", "efec": "89%", "bloque": "Hiper-Ofensiva"},
+    {"id": "🇳🇱 Eredivisie (HOL1)", "espn": "ned.1", "efec": "88%", "bloque": "Hiper-Ofensiva"},
+    {"id": "🇳🇱 Eerste Divisie (HOL2)", "espn": "ned.2", "efec": "85%", "bloque": "Hiper-Ofensiva"},
+    {"id": "🇳🇴 Eliteserien (NOR1)", "espn": "nor.1", "efec": "87%", "bloque": "Hiper-Ofensiva"},
+    {"id": "🇳🇴 1. Division (NOR2)", "espn": "nor.2", "efec": "86%", "bloque": "Hiper-Ofensiva"},
+    {"id": "🇩🇪 2. Bundesliga (ALE2)", "espn": "ger.2", "efec": "84%", "bloque": "Hiper-Ofensiva"},
+    {"id": "🇦🇹 Bundesliga (AUT1)", "espn": "aut.1", "efec": "84%", "bloque": "Hiper-Ofensiva"},
+    {"id": "🇧🇪 Jupiler Pro League (BEL1)", "espn": "bel.1", "efec": "83%", "bloque": "Élite"},
+    {"id": "🏴󠁧󠁢󠁳󠁣󠁴󠁿 Premiership (ESC1)", "espn": "sco.1", "efec": "83%", "bloque": "Élite"},
+    {"id": "🇹🇷 Süper Lig (TUR1)", "espn": "tur.1", "efec": "82%", "bloque": "Élite"},
+    {"id": "🇵🇹 Primeira Liga (POR1)", "espn": "por.1", "efec": "81%", "bloque": "Élite"},
+    {"id": "🇺🇸 MLS (USA1)", "espn": "usa.1", "efec": "84%", "bloque": "América"},
+    {"id": "🇲🇽 Liga MX (MEX1)", "espn": "mex.1", "efec": "80%", "bloque": "América"},
 ]
 
+# Base de datos completa del Paso 1 de tu archivo .ini
 TOP_DISPARADORES = {
     "Bayern Munich": {"sot": 7.8, "xg_shot": 0.16, "tag": "👑 Rey Casa / Top SoT"},
+    "Celtic": {"sot": 8.0, "xg_shot": 0.16, "tag": "👑 Rey Casa / Top SoT"},
+    "PSV Eindhoven": {"sot": 7.5, "xg_shot": 0.15, "tag": "👑 Rey Casa / Top SoT"},
     "Barcelona": {"sot": 7.4, "xg_shot": 0.15, "tag": "👑 Rey Casa / Top SoT"},
     "Manchester City": {"sot": 7.2, "xg_shot": 0.14, "tag": "👑 Rey Casa / Top SoT"},
-    "Paris Saint-Germain": {"sot": 7.1, "xg_shot": 0.15, "tag": "👑 Rey Casa / Top SoT"},
-    "PSV Eindhoven": {"sot": 7.5, "xg_shot": 0.15, "tag": "👑 Rey Casa / Top SoT"},
-    "Celtic": {"sot": 8.0, "xg_shot": 0.16, "tag": "👑 Rey Casa / Top SoT"},
     "Sporting CP": {"sot": 7.1, "xg_shot": 0.15, "tag": "👑 Rey Casa / Top SoT"},
     "Bodo/Glimt": {"sot": 7.0, "xg_shot": 0.14, "tag": "👑 Rey Casa / Top SoT"},
     "Galatasaray": {"sot": 7.0, "xg_shot": 0.14, "tag": "👑 Rey Casa / Top SoT"},
+    "Young Boys": {"sot": 6.8, "xg_shot": 0.14, "tag": "👑 Rey Casa / Top SoT"},
+    "Toluca": {"sot": 6.6, "xg_shot": 0.14, "tag": "👑 Rey Casa / Top SoT"},
+    "Inter Miami": {"sot": 6.5, "xg_shot": 0.15, "tag": "👑 Rey Casa / Top SoT"},
     "Atalanta": {"sot": 6.5, "xg_shot": 0.13, "tag": "👑 Rey Casa / Top SoT"},
-    "Inter": {"sot": 6.3, "xg_shot": 0.14, "tag": "👑 Rey Casa"},
+    "Salzburg": {"sot": 6.4, "xg_shot": 0.14, "tag": "👑 Rey Casa / Top SoT"},
+    "Thun": {"sot": 6.3, "xg_shot": 0.13, "tag": "👑 Rey Casa / Top SoT"},
+    "Jong Ajax": {"sot": 6.2, "xg_shot": 0.13, "tag": "👑 Rey Casa"},
+    "Kongsvinger": {"sot": 6.1, "xg_shot": 0.13, "tag": "👑 Rey Casa"},
+    "Karlsruher": {"sot": 6.1, "xg_shot": 0.13, "tag": "👑 Rey Casa"},
     "Tottenham": {"sot": 6.2, "xg_shot": 0.13, "tag": "👑 Rey Casa"},
+    "Union SG": {"sot": 6.2, "xg_shot": 0.13, "tag": "👑 Rey Casa"},
+    "Fenerbahce": {"sot": 6.5, "xg_shot": 0.14, "tag": "👑 Rey Casa"},
+    "Benfica": {"sot": 6.6, "xg_shot": 0.14, "tag": "👑 Rey Casa"},
+    "Inter": {"sot": 6.3, "xg_shot": 0.14, "tag": "👑 Rey Casa"},
+    "Paris Saint-Germain": {"sot": 7.1, "xg_shot": 0.15, "tag": "👑 Rey Casa"},
     "AS Monaco": {"sot": 6.1, "xg_shot": 0.13, "tag": "👑 Rey Casa"},
-    "AC Milan": {"sot": 6.0, "xg_shot": 0.13, "tag": "👹 Monstruo Visita"},
-    "Villarreal": {"sot": 5.9, "xg_shot": 0.14, "tag": "👹 Monstruo Visita"},
+    "Real Madrid": {"sot": 6.8, "xg_shot": 0.15, "tag": "👑 Rey Casa"},
+    "Wil": {"sot": 5.8, "xg_shot": 0.13, "tag": "👹 Monstruo Visita"},
+    "St. Gallen": {"sot": 5.8, "xg_shot": 0.13, "tag": "👹 Monstruo Visita"},
+    "Ajax": {"sot": 6.2, "xg_shot": 0.14, "tag": "👹 Monstruo Visita"},
+    "Dordrecht": {"sot": 5.8, "xg_shot": 0.13, "tag": "👹 Monstruo Visita"},
+    "Molde": {"sot": 6.0, "xg_shot": 0.13, "tag": "👹 Monstruo Visita"},
+    "Raufoss": {"sot": 5.7, "xg_shot": 0.12, "tag": "👹 Monstruo Visita"},
+    "Hoffenheim": {"sot": 5.7, "xg_shot": 0.13, "tag": "👹 Monstruo Visita"},
+    "Magdeburg": {"sot": 5.8, "xg_shot": 0.13, "tag": "👹 Monstruo Visita"},
+    "Wolfsberger": {"sot": 5.7, "xg_shot": 0.13, "tag": "👹 Monstruo Visita"},
     "Aston Villa": {"sot": 5.8, "xg_shot": 0.13, "tag": "👹 Monstruo Visita"},
-    "TSG Hoffenheim": {"sot": 5.7, "xg_shot": 0.13, "tag": "👹 Monstruo Visita"},
-    "Real Madrid": {"sot": 6.8, "xg_shot": 0.15, "tag": "👑 Rey Casa / Top SoT"},
-    "Liverpool": {"sot": 6.9, "xg_shot": 0.14, "tag": "👑 Rey Casa / Top SoT"},
-    "Borussia Dortmund": {"sot": 6.4, "xg_shot": 0.14, "tag": "👑 Rey Casa / Top SoT"},
-    "Bayer Leverkusen": {"sot": 6.6, "xg_shot": 0.14, "tag": "👑 Rey Casa / Top SoT"},
-    "Arsenal": {"sot": 6.5, "xg_shot": 0.14, "tag": "👑 Rey Casa / Top SoT"}
+    "Genk": {"sot": 5.9, "xg_shot": 0.13, "tag": "👹 Monstruo Visita"},
+    "Rangers": {"sot": 6.1, "xg_shot": 0.13, "tag": "👹 Monstruo Visita"},
+    "Trabzonspor": {"sot": 5.7, "xg_shot": 0.12, "tag": "👹 Monstruo Visita"},
+    "Braga": {"sot": 5.9, "xg_shot": 0.13, "tag": "👹 Monstruo Visita"},
+    "Portland Timbers": {"sot": 5.8, "xg_shot": 0.13, "tag": "👹 Monstruo Visita"},
+    "AC Milan": {"sot": 6.0, "xg_shot": 0.13, "tag": "👹 Monstruo Visita"},
+    "Rennes": {"sot": 5.7, "xg_shot": 0.12, "tag": "👹 Monstruo Visita"},
+    "Villarreal": {"sot": 5.9, "xg_shot": 0.14, "tag": "👹 Monstruo Visita"},
+    "Santos": {"sot": 5.6, "xg_shot": 0.12, "tag": "👹 Monstruo Visita"},
 }
 
 DEFENSAS_COLADOR = [
-    "Bochum", "Augsburg", "Southampton", "Ipswich", "Leicester", 
-    "Hellas Verona", "Venezia", "Angers", "Saint-Etienne", "Espanyol", 
-    "Real Valladolid", "Holstein Kiel", "Heidenheim", "Montpellier", "Le Havre",
-    "Wolverhampton", "Las Palmas", "Parma", "Como", "Slovan Bratislava", "Young Boys", "Salzburg"
+    "Baden", "Schaffhausen", "Yverdon", "Grasshopper", "Waalwijk", "Almere City",
+    "TOP Oss", "Jong Utrecht", "Sandefjord", "Haugesund", "Levanger", "Raufoss",
+    "Bochum", "Augsburg", "Braunschweig", "Regensburg", "Tirol", "Blau-Weiss Linz",
+    "Southampton", "Ipswich", "Leicester", "Kortrijk", "Eupen", "Ross County",
+    "St. Johnstone", "Hatayspor", "Konyaspor", "Estrela", "Farense", "San Jose",
+    "Chicago Fire", "Hellas Verona", "Venezia", "Angers", "Saint-Etienne",
+    "Espanyol", "Valladolid", "Puebla", "Mazatlan"
 ]
 
 BLOQUES_CERROJO = ["Getafe", "Mallorca", "Empoli", "Everton"]
@@ -217,60 +256,63 @@ def extraer_stat_live(team_dict, stat_names):
                 return 0.0
     return 0.0
 
-# FUNCIÓN CORREGIDA: Consulta día por día automáticamente (Hoy y próximos 5 días)
 @st.cache_data(ttl=90)
-def obtener_todos_los_partidos():
+def obtener_partidos_ligas(codigos_espn, dias=4):
     hoy = datetime.now()
-    fechas = [(hoy + timedelta(days=i)).strftime("%Y%m%d") for i in range(6)]
-    datos_por_liga = {liga["id"]: {"meta": liga, "eventos": []} for liga in LIGAS_PRINCIPALES}
+    fechas = [(hoy + timedelta(days=i)).strftime("%Y%m%d") for i in range(dias)]
+    mapa_ligas = {l["espn"]: l for l in LIGAS_BIG_DATA}
+    datos_por_liga = {mapa_ligas[c]["id"]: {"meta": mapa_ligas[c], "eventos": []} for c in codigos_espn if c in mapa_ligas}
     ids_vistos = set()
 
-    for liga in LIGAS_PRINCIPALES:
+    for c in codigos_espn:
+        if c not in mapa_ligas:
+            continue
+        liga_obj = mapa_ligas[c]
         for f_str in fechas:
-            url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{liga['espn']}/scoreboard?dates={f_str}"
+            url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{c}/scoreboard?dates={f_str}"
             try:
                 res = requests.get(url, timeout=3)
                 if res.status_code == 200:
-                    eventos = res.json().get("events", [])
-                    for ev in eventos:
+                    for ev in res.json().get("events", []):
                         ev_id = ev.get("id")
                         if ev_id not in ids_vistos:
                             ids_vistos.add(ev_id)
-                            datos_por_liga[liga["id"]]["eventos"].append(ev)
+                            datos_por_liga[liga_obj["id"]]["eventos"].append(ev)
             except Exception:
                 pass
     return datos_por_liga
-
-datos_jornada = obtener_todos_los_partidos()
-
-# Construir lista total de nombres de partidos para el selector de notificaciones
-lista_todos_partidos = []
-for nom_liga, contenido in datos_jornada.items():
-    for ev in contenido["eventos"]:
-        comp = ev.get("competitions", [{}])[0]
-        competitors = comp.get("competitors", [])
-        if len(competitors) == 2:
-            nl = competitors[0].get("team", {}).get("shortDisplayName", "Local")
-            nv = competitors[1].get("team", {}).get("shortDisplayName", "Visita")
-            lista_todos_partidos.append(f"{nl} vs {nv} ({nom_liga})")
 
 # =============================================================================
 # ESTRUCTURA DE LAS 3 SECCIONES
 # =============================================================================
 sec_futbol, sec_apuestas, sec_live = st.tabs([
-    "⚽ 1. RESULTADOS Y PRÓXIMOS PARTIDOS", 
-    "🎯 2. APUESTAS OVER 1.5 (BIG DATA)", 
-    "🚨 3. SCRAPING EN VIVO (CAZADOR DE 0-0)"
+    "⚽ 1. RESULTADOS Y DETALLES (PORTADA)", 
+    "🎯 2. PRE-APUESTAS OVER 1.5 (MOTOR BIG DATA)", 
+    "🚨 3. SCRAPING EN VIVO (MINUTO 18+)"
 ])
 
 # -----------------------------------------------------------------------------
-# SECCIÓN 1: PORTADA DE FÚTBOL CON CAMPANITA INDIVIDUAL POR PARTIDO
+# SECCIÓN 1: PORTADA CON DESPLEGABLE DE GOLES, EVENTOS Y ESTADÍSTICAS AL CLIC
 # -----------------------------------------------------------------------------
 with sec_futbol:
-    st.markdown("##### 🔔 Activa la campanita a la derecha de cualquier partido si quieres recibir alertas exclusivas de ese encuentro:")
-    
-    total_mostrados = 0
-    for nombre_liga, contenido in datos_jornada.items():
+    col_filtro1, col_filtro2 = st.columns([2, 2])
+    with col_filtro1:
+        modo_ligas_portada = st.radio(
+            "Ligas en Portada:",
+            ["⭐ Champions + 5 Grandes Ligas", "🌍 Todas las 19 Ligas del Big Data"],
+            horizontal=True
+        )
+    with col_filtro2:
+        st.caption("💡 **Haz clic sobre la barra de detalles debajo de cualquier partido** para abrir goles, minutos y estadísticas.")
+
+    if modo_ligas_portada == "⭐ Champions + 5 Grandes Ligas":
+        codigos_portada = ["uefa.champions", "eng.1", "esp.1", "ita.1", "ger.1", "fra.1"]
+    else:
+        codigos_portada = [l["espn"] for l in LIGAS_BIG_DATA]
+
+    datos_portada = obtener_partidos_ligas(codigos_portada, dias=4)
+
+    for nombre_liga, contenido in datos_portada.items():
         eventos = contenido["eventos"]
         if not eventos:
             continue
@@ -285,7 +327,6 @@ with sec_futbol:
 
             competitors = comp.get("competitors", [])
             if len(competitors) == 2:
-                total_mostrados += 1
                 loc = competitors[0]
                 vis = competitors[1]
 
@@ -326,6 +367,55 @@ with sec_futbol:
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
+
+                    # DESPLEGABLE INTERACTIVO AL DAR CLIC PARA VER QUÉ PASÓ EN EL PARTIDO
+                    with st.expander(f"📊 Ver qué pasó en el partido: Goles, Minutos y Estadísticas ({nom_l} vs {nom_v})"):
+                        # 1. Extraer Goles y Tarjetas (comp.details)
+                        detalles_partido = comp.get("details", [])
+                        eventos_texto = []
+                        for d in detalles_partido:
+                            min_ev = d.get("clock", {}).get("displayValue", "")
+                            tipo_ev = d.get("type", {}).get("text", "")
+                            jugadores = d.get("athletesInvolved", [])
+                            nom_jug = jugadores[0].get("displayName", "Jugador") if jugadores else ""
+                            es_gol = d.get("scoringPlay", False)
+                            es_tarjeta = d.get("yellowCard", False) or d.get("redCard", False)
+
+                            if es_gol:
+                                eventos_texto.append(f"⚽ **GOL ({min_ev})**: {nom_jug} ({tipo_ev})")
+                            elif d.get("redCard", False):
+                                eventos_texto.append(f"🟥 **Tarjeta Roja ({min_ev})**: {nom_jug}")
+                            elif d.get("yellowCard", False):
+                                eventos_texto.append(f"🟨 ** Amarilla ({min_ev})**: {nom_jug}")
+
+                        if eventos_texto:
+                            st.markdown("**📋 Resumen de Acciones del Partido:**")
+                            for ev_linea in eventos_texto:
+                                st.markdown(f"- {ev_linea}")
+                        else:
+                            if st_state == "pre":
+                                st.info("⏳ El partido aún no ha comenzado. Aquí verás los goles y estadísticas apenas inicie.")
+                            else:
+                                st.write("Sin goles o incidencias registradas en el acta hasta el momento.")
+
+                        # 2. Extraer Estadísticas Cara a Cara
+                        pos_l = extraer_stat_live(loc, ["possessionPct"])
+                        pos_v = extraer_stat_live(vis, ["possessionPct"])
+                        sot_l = int(extraer_stat_live(loc, ["shotsOnTarget", "shotsOnGoal"]))
+                        sot_v = int(extraer_stat_live(vis, ["shotsOnTarget", "shotsOnGoal"]))
+                        tir_l = int(extraer_stat_live(loc, ["totalShots", "shots"]))
+                        tir_v = int(extraer_stat_live(vis, ["totalShots", "shots"]))
+                        cor_l = int(extraer_stat_live(loc, ["wonCorners", "corners"]))
+                        cor_v = int(extraer_stat_live(vis, ["wonCorners", "corners"]))
+
+                        df_stats_partido = pd.DataFrame([
+                            {"Métrica": "Posesión (%)", nom_l: f"{pos_l}%", nom_v: f"{pos_v}%"},
+                            {"Métrica": "🎯 Tiros al Arco (SoT)", nom_l: sot_l, nom_v: sot_v},
+                            {"Métrica": "💥 Disparos Totales", nom_l: tir_l, nom_v: tir_v},
+                            {"Métrica": "🚩 Tiros de Esquina", nom_l: cor_l, nom_v: cor_v},
+                        ])
+                        st.table(df_stats_partido)
+
                 with col_bell:
                     ya_seguido = id_unico_partido in st.session_state["seguidos"]
                     chk = st.checkbox("🔔 Seguir", value=ya_seguido, key=f"bell_{ev.get('id')}")
@@ -335,114 +425,138 @@ with sec_futbol:
                         st.session_state["seguidos"].remove(id_unico_partido)
 
 # -----------------------------------------------------------------------------
-# SECCIÓN 2: BUSCADOR AUTOMÁTICO DE APUESTAS OVER 1.5 (CON BIG DATA .INI)
+# SECCIÓN 2: PRE-APUESTAS OVER 1.5 (BAJO DEMANDA Y SIN VEREDICTO EN VIVO)
 # -----------------------------------------------------------------------------
 with sec_apuestas:
-    st.subheader("🎯 Auditoría Automática Over 1.5 (Champions + 5 Grandes Ligas)")
-    st.markdown("Cruza todos los partidos de hoy y los próximos días con tu base de datos (**xG/Shot >= 0.12**, **Reyes de Casa vs Coladores** y **Anti-Cerrojo**).")
+    st.subheader("🎯 Laboratorio de Pre-Apuesta Over 1.5 (Las 19 Ligas Oficiales Big Data)")
+    st.markdown("Analiza **únicamente partidos antes de iniciar (Pre-Partido)** aplicando tus 6 pasos: **SoT >= 5.5**, **xG/Shot >= 0.12**, **Cruces de Oro** y bloqueo por **Cerrojo**.")
 
-    reporte_pre = []
-    for nombre_liga, contenido in datos_jornada.items():
-        efec_liga = contenido["meta"]["efec"]
-        for evento in contenido["eventos"]:
-            comp = evento.get("competitions", [{}])[0]
-            competitors = comp.get("competitors", [])
-            if len(competitors) == 2:
-                nom_local = competitors[0].get("team", {}).get("displayName", "Local")
-                nom_visita = competitors[1].get("team", {}).get("displayName", "Visita")
-                fecha_iso = evento.get("date", "")
-                try:
-                    dt = datetime.fromisoformat(fecha_iso.replace("Z", "+00:00"))
-                    fecha_str = dt.strftime("%d/%m %H:%M")
-                except:
-                    fecha_str = "Jornada Activa"
+    opciones_ligas_pre = [l["id"] for l in LIGAS_BIG_DATA]
+    ligas_seleccionadas_pre = st.multiselect(
+        "📌 Selecciona las Ligas que deseas auditar para Pre-Apuesta (Por defecto están las 19 ligas + Champions):",
+        options=opciones_ligas_pre,
+        default=opciones_ligas_pre
+    )
 
-                sot_l, xgs_l, tag_l, col_l, cer_l = auditar_equipo_bd(nom_local)
-                sot_v, xgs_v, tag_v, col_v, cer_v = auditar_equipo_bd(nom_visita)
+    if st.button("🚀 GENERAR REPORTE DE PRE-APUESTA OVER 1.5"):
+        codigos_pre = [l["espn"] for l in LIGAS_BIG_DATA if l["id"] in ligas_seleccionadas_pre]
+        with st.spinner("Auditando las 19 ligas del archivo Big Data para Pre-Apuesta..."):
+            datos_pre = obtener_partidos_ligas(codigos_pre, dias=4)
+            reporte_pre = []
 
-                sot_combinado = round((sot_l + sot_v) / 1.6, 1)
-                calidad_disparo = round(max(xgs_l, xgs_v), 2)
-                xg_base = round((sot_l * xgs_l * 1.2) + (sot_v * xgs_v), 2)
-                
-                regla_aplicada = "Análisis Estándar"
-                bono_prob = 0.0
+            for nombre_liga, contenido in datos_pre.items():
+                efec_liga = contenido["meta"]["efec"]
+                for evento in contenido["eventos"]:
+                    comp = evento.get("competitions", [{}])[0]
+                    st_state = comp.get("status", {}).get("type", {}).get("state", "pre")
 
-                if (sot_l >= 6.0 and col_v):
-                    xg_base += 0.65
-                    bono_prob += 7.0
-                    regla_aplicada = "🔥 REGLA A: Rey Casa vs Colador (Prioritaria)"
-                elif (sot_v >= 5.7 and col_l):
-                    xg_base += 0.50
-                    bono_prob += 5.0
-                    regla_aplicada = "⚡ REGLA B: Monstruo Visita vs Colador"
-                elif (sot_l >= 6.2 and sot_v >= 6.0):
-                    xg_base += 0.70
-                    bono_prob += 6.0
-                    regla_aplicada = "💥 REGLA C: Choque de Trenes (Over 1.5 / 2.5)"
+                    # FILTRO ESTRICTO: SOLO PARTIDOS PRE-APUESTA (QUE NO HAN EMPEZADO)
+                    if st_state != "pre":
+                        continue
 
-                if cer_l or cer_v:
-                    xg_base = max(1.35, xg_base - 0.55)
-                    bono_prob -= 10.0
-                    regla_aplicada = "🧱 ALERTA KRIPTONITA: Rival Cerrojo (-10%)"
+                    competitors = comp.get("competitors", [])
+                    if len(competitors) == 2:
+                        nom_local = competitors[0].get("team", {}).get("displayName", "Local")
+                        nom_visita = competitors[1].get("team", {}).get("displayName", "Visita")
+                        fecha_iso = evento.get("date", "")
+                        try:
+                            dt = datetime.fromisoformat(fecha_iso.replace("Z", "+00:00"))
+                            fecha_str = dt.strftime("%d/%m %H:%M")
+                        except:
+                            fecha_str = "Próximo"
 
-                prob_poisson = (1 - poisson.cdf(1, xg_base)) * 100
-                prob_final = round(min(98.5, max(45.0, prob_poisson + bono_prob)), 1)
-                cuota_justa = round(100 / prob_final, 2)
+                        sot_l, xgs_l, tag_l, col_l, cer_l = auditar_equipo_bd(nom_local)
+                        sot_v, xgs_v, tag_v, col_v, cer_v = auditar_equipo_bd(nom_visita)
 
-                if cer_l or cer_v:
-                    veredicto = "🛑 ABORTAR / RIESGO 0-0"
-                elif prob_final >= 84.0 and calidad_disparo >= 0.13:
-                    veredicto = "🟢 METER FICHA FUERTE (Cruce Oro)"
-                elif prob_final >= 78.0:
-                    veredicto = "🟢 METER FICHA (Over 1.5)"
-                else:
-                    veredicto = "🟡 ESPERAR EN VIVO (Sección 3)"
+                        sot_combinado = round((sot_l + sot_v) / 1.6, 1)
+                        calidad_disparo = round(max(xgs_l, xgs_v), 2)
+                        xg_base = round((sot_l * xgs_l * 1.2) + (sot_v * xgs_v), 2)
+                        
+                        regla_aplicada = "Análisis Estándar Pre-Partido"
+                        bono_prob = 0.0
 
-                reporte_pre.append({
-                    "Fecha / Hora": fecha_str,
-                    "Torneo": f"{nombre_liga} ({efec_liga})",
-                    "Partido": f"{nom_local} vs {nom_visita}",
-                    "🎯 SoT Esp.": sot_combinado,
-                    "💎 xG/Shot": calidad_disparo,
-                    "⚽ xG Total": round(xg_base, 2),
-                    "🔥 Prob. Over 1.5": f"{prob_final}%",
-                    "Cuota Mín.": cuota_justa,
-                    "Contexto Big Data": regla_aplicada,
-                    "Veredicto Oficial": veredicto
-                })
+                        if (sot_l >= 6.0 and col_v):
+                            xg_base += 0.65
+                            bono_prob += 7.0
+                            regla_aplicada = "🔥 REGLA A: Rey Casa vs Defensa Colador"
+                        elif (sot_v >= 5.7 and col_l):
+                            xg_base += 0.50
+                            bono_prob += 5.0
+                            regla_aplicada = "⚡ REGLA B: Monstruo Visita vs Colador"
+                        elif (sot_l >= 6.2 and sot_v >= 6.0):
+                            xg_base += 0.70
+                            bono_prob += 6.0
+                            regla_aplicada = "💥 REGLA C: Choque Top Disparadores (Monitor 2.5)"
 
-    if reporte_pre:
-        st.dataframe(pd.DataFrame(reporte_pre), use_container_width=True, hide_index=True)
+                        if cer_l or cer_v:
+                            xg_base = max(1.35, xg_base - 0.55)
+                            bono_prob -= 10.0
+                            regla_aplicada = "🧱 ALERTA KRIPTONITA: Bloque Bajo Cerrojo (-10%)"
+
+                        prob_poisson = (1 - poisson.cdf(1, xg_base)) * 100
+                        prob_final = round(min(98.5, max(45.0, prob_poisson + bono_prob)), 1)
+                        cuota_justa = round(100 / prob_final, 2)
+
+                        # VEREDICTOS EXCLUSIVOS DE PRE-APUESTA (SIN MENCIONAR EN VIVO)
+                        if cer_l or cer_v:
+                            veredicto_pre = "🛑 ABORTAR PRE-APUESTA (Riesgo Cerrojo)"
+                        elif prob_final >= 85.0 and calidad_disparo >= 0.13:
+                            veredicto_pre = "🟢 METER FICHA PRE-PARTIDO (Prioritaria 95%+)"
+                        elif prob_final >= 78.0:
+                            veredicto_pre = "🟢 METER FICHA PRE-PARTIDO (Over 1.5)"
+                        else:
+                            veredicto_pre = "⚪ DESCARTAR PRE-APUESTA (Bajo Voltaje)"
+
+                        reporte_pre.append({
+                            "Fecha / Hora": fecha_str,
+                            "Liga (Efectividad)": f"{nombre_liga} ({efec_liga})",
+                            "Partido": f"{nom_local} vs {nom_visita}",
+                            "🎯 SoT Proy.": sot_combinado,
+                            "💎 xG/Shot": calidad_disparo,
+                            "⚽ xG Esp.": round(xg_base, 2),
+                            "🔥 Prob. Over 1.5": f"{prob_final}%",
+                            "Cuota Mín. Valor": cuota_justa,
+                            "Regla Big Data": regla_aplicada,
+                            "Veredicto Pre-Apuesta": veredicto_pre
+                        })
+
+            if reporte_pre:
+                st.success(f"✅ {len(reporte_pre)} partidos Pre-Partido auditados en las ligas seleccionadas.")
+                st.dataframe(pd.DataFrame(reporte_pre), use_container_width=True, hide_index=True)
+            else:
+                st.info("No hay partidos pendientes por iniciar en este rango para las ligas seleccionadas.")
+    else:
+        st.info("👆 Selecciona tus ligas y presiona el botón para generar la tabla de Pre-Apuestas.")
 
 # -----------------------------------------------------------------------------
-# SECCIÓN 3: SCRAPING EN VIVO Y NOTIFICACIONES SOLO DE PARTIDOS ELEGIDOS
+# SECCIÓN 3: SCRAPING EN VIVO AUTOMÁTICO (DESPUÉS DEL MINUTO 18 EN TODAS LAS LIGAS)
 # -----------------------------------------------------------------------------
 with sec_live:
-    st.subheader("🚨 Cazador de 0-0 en Vivo & Notificaciones Personalizadas")
-    
-    # Selector legible para elegir o quitar partidos de tus notificaciones
-    partidos_elegidos = st.multiselect(
-        "🔔 Partidos con Notificación Activa (Solo recibirás alertas de los partidos que estén aquí):",
-        options=lista_todos_partidos,
-        default=st.session_state["seguidos"]
-    )
-    st.session_state["seguidos"] = partidos_elegidos
+    st.subheader("🚨 Radar de Scraping en Vivo Automático (Activación Minuto 18+)")
+    st.markdown("Escanea en automático las **19 Ligas del Big Data + Champions**. En cuanto el reloj supera el **minuto 18**, audita los tiros al arco y emite el **Veredicto En Vivo** para cazar el **Over 0.5 HT / Over 1.5 Live**.")
 
-    col_m1, col_m2 = st.columns(2)
-    with col_m1:
-        auto_monitor = st.checkbox("🔄 Auto-Actualizar Marcadores y Tiros cada 60 seg", value=True)
-    with col_m2:
-        solo_seguidos = st.checkbox("👁️ Mostrar en la tabla solo los partidos que sigo con 🔔", value=False)
+    col_l1, col_l2 = st.columns(2)
+    with col_l1:
+        auto_monitor = st.checkbox("🔄 Scraping Automático Continuo (Refresca cada 60 seg)", value=True)
+    with col_l2:
+        solo_en_juego = st.checkbox("🔴 Mostrar únicamente partidos En Juego actualmente", value=False)
+
+    # Escanear hoy para todas las 19 ligas + Champions
+    codigos_todas = [l["espn"] for l in LIGAS_BIG_DATA]
+    datos_live_todas = obtener_partidos_ligas(codigos_todas, dias=1)
 
     partidos_monitoreados = []
-    alertas_legibles = []
+    alertas_minuto_18 = []
 
-    for nombre_liga, contenido in datos_jornada.items():
+    for nombre_liga, contenido in datos_live_todas.items():
         for evento in contenido["eventos"]:
             comp = evento.get("competitions", [{}])[0]
             status_type = comp.get("status", {}).get("type", {}).get("state", "pre")
             reloj = comp.get("status", {}).get("displayClock", "0'")
             detalle = comp.get("status", {}).get("type", {}).get("shortDetail", "Programado")
+
+            if solo_en_juego and status_type != "in":
+                continue
 
             competitors = comp.get("competitors", [])
             if len(competitors) == 2:
@@ -451,9 +565,6 @@ with sec_live:
                 nom_l = local.get("team", {}).get("shortDisplayName", "Local")
                 nom_v = visita.get("team", {}).get("shortDisplayName", "Visita")
                 id_unico = f"{nom_l} vs {nom_v} ({nombre_liga})"
-
-                if solo_seguidos and id_unico not in st.session_state["seguidos"]:
-                    continue
 
                 goles_l = int(local.get("score", 0) or 0)
                 goles_v = int(visita.get("score", 0) or 0)
@@ -479,56 +590,62 @@ with sec_live:
                 tiene_campanita = id_unico in st.session_state["seguidos"]
                 icono_campana = "🔔 Sí" if tiene_campanita else "🔕 No"
 
-                estado_alerta = "⚪ Sin alerta"
+                # VEREDICTO EN VIVO AUTOMÁTICO DESPUÉS DEL MINUTO 18
+                veredicto_en_vivo = "⏳ Esperando Minuto 18'"
                 if status_type == "in":
-                    if goles_tot == 0:
-                        if min_num >= 20 and (sot_live >= 3 or tiros_live >= 6 or sot_h_l >= 6.5 or col_v):
-                            estado_alerta = "🚨 ¡0-0 MADURO! -> METER OVER 0.5 / 1.5"
-                            texto_claro = (
-                                f"⚽ PARTIDO: {nom_l} vs {nom_v} ({nombre_liga}) | "
-                                f"⏱️ Minuto: {reloj} (Marcador 0-0) | "
-                                f"🎯 Tiros al arco: {sot_live} ({tiros_live} disparos totales) | "
-                                f"👉 SEÑAL: METER OVER 0.5 HT / OVER 1.5 LIVE"
-                            )
-                            # Si el usuario activó la campanita en este partido (o no seleccionó ninguno en específico), avisa claro
-                            if tiene_campanita:
-                                alertas_legibles.append(texto_claro)
-                                enviar_notificacion_legible(f"{nom_l} vs {nom_v}", texto_claro)
-                        else:
-                            estado_alerta = f"👀 Vigilando 0-0 ({reloj})"
-                    elif goles_tot == 1 and 20 <= min_num <= 75:
-                        if sot_live >= 4 or tiros_live >= 8:
-                            estado_alerta = "🔥 1-0 CON ASEDIO -> OVER 1.5 / 2.5 LIVE"
-                            if tiene_campanita:
-                                texto_claro = f"⚽ {nom_l} vs {nom_v} ({reloj}) va {goles_l}-{goles_v} con {sot_live} tiros a puerta. ¡Buscar Over 1.5 / 2.5!"
-                                alertas_legibles.append(texto_claro)
-                                enviar_notificacion_legible(f"{nom_l} vs {nom_v}", texto_claro)
-                        else:
-                            estado_alerta = "🟢 1 Gol - Ritmo normal"
-                    elif goles_tot >= 2:
-                        estado_alerta = "✅ OVER 1.5 COBRADO"
+                    if min_num < 18:
+                        veredicto_en_vivo = f"🕒 Calentando ({reloj} < 18')"
+                    else:
+                        if goles_tot == 0:
+                            if sot_live >= 3 or tiros_live >= 6 or sot_h_l >= 6.5 or col_v:
+                                veredicto_en_vivo = "🚨 METER OVER 0.5 HT / OVER 1.5 LIVE (0-0 con Asedio)"
+                                txt_alerta = (
+                                    f"⚽ {nom_l} vs {nom_v} ({nombre_liga}) | ⏱️ Minuto {reloj} (0-0) | "
+                                    f"🎯 Tiros al arco: {sot_live} | 💥 Disparos: {tiros_live} | "
+                                    f"👉 VEREDICTO EN VIVO: METER OVER 0.5 / 1.5"
+                                )
+                                alertas_minuto_18.append(txt_alerta)
+                                if tiene_campanita:
+                                    enviar_notificacion_legible(f"{nom_l} vs {nom_v}", txt_alerta)
+                            else:
+                                veredicto_en_vivo = f"👀 0-0 en observación ({reloj} - Faltan tiros al arco)"
+                        elif goles_tot == 1 and min_num <= 78:
+                            if sot_live >= 4 or tiros_live >= 8 or sot_h_l >= 6.5:
+                                veredicto_en_vivo = "🔥 METER OVER 1.5 / 2.5 EN VIVO (Partido Roto)"
+                                txt_alerta = (
+                                    f"⚽ {nom_l} vs {nom_v} ({nombre_liga}) | ⏱️ Minuto {reloj} ({goles_l}-{goles_v}) | "
+                                    f"🎯 Tiros al arco: {sot_live} | 👉 VEREDICTO EN VIVO: METER OVER 1.5 / 2.5"
+                                )
+                                alertas_minuto_18.append(txt_alerta)
+                                if tiene_campanita:
+                                    enviar_notificacion_legible(f"{nom_l} vs {nom_v}", txt_alerta)
+                            else:
+                                veredicto_en_vivo = "🟡 1 Gol adentro - Ritmo moderado"
+                        elif goles_tot >= 2:
+                            veredicto_en_vivo = "✅ OVER 1.5 CUMPLIDO EN CANCHA"
                 elif status_type == "pre":
-                    estado_alerta = "⏳ Programado (Listo para vigilar 0-0)"
+                    veredicto_en_vivo = "⏳ Pendiente de inicio"
                 else:
-                    estado_alerta = "🏁 Finalizado"
+                    veredicto_en_vivo = "🏁 Partido Finalizado"
 
                 partidos_monitoreados.append({
-                    "Notificar 🔔": icono_campana,
-                    "Estado": f"🔴 {reloj}" if status_type == "in" else detalle,
-                    "Torneo": nombre_liga,
-                    "Encuentro": f"{nom_l} vs {nom_v}",
+                    "Alerta 🔔": icono_campana,
+                    "Reloj / Estado": f"🔴 {reloj}" if status_type == "in" else detalle,
+                    "Liga": nombre_liga,
+                    "Partido": f"{nom_l} vs {nom_v}",
                     "Marcador": f"{goles_l} - {goles_v}",
-                    "🎯 Tiros al Arco": sot_live,
-                    "💥 Disparos": tiros_live,
-                    "SEÑAL CAZADOR 0-0": estado_alerta
+                    "🎯 Tiros al Arco (Live)": sot_live,
+                    "💥 Disparos Totales": tiros_live,
+                    "Perfil Big Data": f"{tag_l} vs {tag_v}",
+                    "⚡ VEREDICTO EN VIVO (MIN 18+)": veredicto_en_vivo
                 })
 
-    if alertas_legibles:
-        st.markdown("### 🔔 TUS NOTIFICACIONES EN VIVO DE PARTIDOS SEGUIDOS:")
-        for al in alertas_legibles:
+    if alertas_minuto_18:
+        st.markdown("### 🚨 SEÑALES AUTOMÁTICAS ACTIVAS (MINUTO 18+):")
+        for al in alertas_minuto_18:
             st.error(al)
     else:
-        st.info("📡 Marca la casilla '🔔 Seguir' en los partidos de la Portada (o elígelos arriba) para recibir notificaciones legibles únicamente de los juegos que te interesan.")
+        st.success("📡 Escáner Minuto 18+ activo en las 19 ligas. En cuanto un partido en juego supere el minuto 18 con presión de tiros, saltará aquí la orden.")
 
     if partidos_monitoreados:
         st.dataframe(pd.DataFrame(partidos_monitoreados), use_container_width=True, hide_index=True)
