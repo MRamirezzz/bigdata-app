@@ -9,7 +9,11 @@ from scipy.stats import poisson
 # Configuración de la página
 st.set_page_config(page_title="Portal Fútbol & Big Data - Miguel Ramirez", page_icon="⚽", layout="wide")
 
-# Estilos CSS para imitar las tarjetas oscuras de tu captura con escudos y marcadores centrados
+# Inicializar la lista de partidos que el jefe quiere seguir con notificación
+if "seguidos" not in st.session_state:
+    st.session_state["seguidos"] = []
+
+# Estilos CSS estilo app deportiva oscura
 st.markdown("""
 <style>
 .liga-header {
@@ -19,23 +23,19 @@ st.markdown("""
     border-radius: 10px 10px 0 0;
     font-weight: 700;
     font-size: 17px;
-    border-bottom: 2px solid #2d303e;
-    margin-top: 20px;
-    display: flex;
-    align-items: center;
+    border-bottom: 2px solid #00ffcc;
+    margin-top: 18px;
 }
-.match-row {
+.match-card {
     background-color: #121318;
-    padding: 12px 16px;
+    padding: 10px 14px;
     border-bottom: 1px solid #222530;
+    border-radius: 6px;
+    margin-bottom: 4px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     color: #e0e0e0;
-    font-family: sans-serif;
-}
-.match-row:hover {
-    background-color: #181a20;
 }
 .status-badge {
     background-color: #262936;
@@ -44,7 +44,7 @@ st.markdown("""
     border-radius: 6px;
     font-size: 12px;
     font-weight: bold;
-    min-width: 65px;
+    min-width: 75px;
     text-align: center;
 }
 .status-live {
@@ -54,7 +54,7 @@ st.markdown("""
     border-radius: 6px;
     font-size: 12px;
     font-weight: bold;
-    min-width: 65px;
+    min-width: 75px;
     text-align: center;
 }
 .teams-container {
@@ -62,7 +62,7 @@ st.markdown("""
     align-items: center;
     justify-content: center;
     flex-grow: 1;
-    gap: 15px;
+    gap: 12px;
 }
 .team-home {
     text-align: right;
@@ -83,57 +83,53 @@ st.markdown("""
     font-weight: 800;
     font-size: 16px;
     color: #ffffff;
-    min-width: 70px;
+    min-width: 75px;
     text-align: center;
 }
 .team-logo {
     width: 26px;
     height: 26px;
     object-fit: contain;
-    vertical-align: middle;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# Cabecera principal con tu firma
+# Cabecera principal limpia (SIN FUEGOS)
 st.title("⚽ PORTAL DE FÚTBOL EUROPEO & CENTRAL BIG DATA")
-st.markdown("<h2 style='text-align: center; color: #00ffcc;'>🔥 CREADO POR MIGUEL RAMIREZ 🔥</h2>", unsafe_allow_html=True)
+st.markdown("<h2 style='text-align: center; color: #00ffcc; letter-spacing: 2px;'>CREADO POR MIGUEL RAMIREZ</h2>", unsafe_allow_html=True)
 
-# Botón de Notificaciones Nativas del Navegador (Push Web)
+# Permiso del navegador para mostrar notificaciones emergentes legibles
 components.html("""
-<div style="display: flex; justify-content: flex-end; align-items: center; font-family: sans-serif; margin-bottom: 5px;">
-    <button id="btn-notif" onclick="activarNotificaciones()" style="background-color: #00ffcc; color: #0b0c10; border: none; padding: 8px 16px; border-radius: 20px; font-weight: bold; cursor: pointer; box-shadow: 0 2px 8px rgba(0,255,204,0.3);">
-        🔔 Activar Notificaciones de Goles y Alertas 0-0
+<div style="display: flex; justify-content: flex-end; align-items: center; font-family: sans-serif;">
+    <button id="btn-permiso" onclick="pedirPermiso()" style="background-color: #1f222d; color: #00ffcc; border: 1px solid #00ffcc; padding: 6px 14px; border-radius: 8px; font-weight: bold; cursor: pointer;">
+        🔔 Habilitar Sonido/Avisos en este Dispositivo
     </button>
 </div>
 <script>
-function activarNotificaciones() {
+function pedirPermiso() {
     if (!("Notification" in window)) {
         alert("Tu navegador no soporta notificaciones web.");
-    } else if (Notification.permission === "granted") {
-        new Notification("⚽ Central Big Data - Miguel Ramirez", {
-            body: "¡Las alertas en vivo ya están activas en tu dispositivo!",
-        });
-        document.getElementById("btn-notif").innerText = "✅ Notificaciones Activas";
-    } else if (Notification.permission !== "denied") {
+    } else {
         Notification.requestPermission().then(function (permission) {
             if (permission === "granted") {
+                document.getElementById("btn-permiso").innerText = "✅ Dispositivo Listo para Recibir Alertas";
                 new Notification("⚽ Central Big Data - Miguel Ramirez", {
-                    body: "¡Notificaciones activadas! Recibirás avisos de fijos y 0-0.",
+                    body: "Ahora marca la campanita 🔔 en los partidos que quieras vigilar."
                 });
-                document.getElementById("btn-notif").innerText = "✅ Notificaciones Activas";
             }
         });
     }
 }
 </script>
-""", height=45)
+""", height=42)
 
-def disparar_notificacion_push(titulo, mensaje):
+def enviar_notificacion_legible(partido, detalle_alerta):
     components.html(f"""
     <script>
     if ("Notification" in window && Notification.permission === "granted") {{
-        new Notification("{titulo}", {{ body: "{mensaje}" }});
+        new Notification("🚨 ALERTA EN: {partido}", {{
+            body: "{detalle_alerta}"
+        }});
     }}
     </script>
     """, height=0)
@@ -171,7 +167,8 @@ TOP_DISPARADORES = {
     "Real Madrid": {"sot": 6.8, "xg_shot": 0.15, "tag": "👑 Rey Casa / Top SoT"},
     "Liverpool": {"sot": 6.9, "xg_shot": 0.14, "tag": "👑 Rey Casa / Top SoT"},
     "Borussia Dortmund": {"sot": 6.4, "xg_shot": 0.14, "tag": "👑 Rey Casa / Top SoT"},
-    "Bayer Leverkusen": {"sot": 6.6, "xg_shot": 0.14, "tag": "👑 Rey Casa / Top SoT"}
+    "Bayer Leverkusen": {"sot": 6.6, "xg_shot": 0.14, "tag": "👑 Rey Casa / Top SoT"},
+    "Arsenal": {"sot": 6.5, "xg_shot": 0.14, "tag": "👑 Rey Casa / Top SoT"}
 }
 
 DEFENSAS_COLADOR = [
@@ -220,55 +217,65 @@ def extraer_stat_live(team_dict, stat_names):
                 return 0.0
     return 0.0
 
-@st.cache_data(ttl=120)
-def obtener_jornada_automatica():
+# FUNCIÓN CORREGIDA: Consulta día por día automáticamente (Hoy y próximos 5 días)
+@st.cache_data(ttl=90)
+def obtener_todos_los_partidos():
     hoy = datetime.now()
-    # Escanea automáticamente desde hoy hasta +4 días para traer toda la jornada activa sin preguntar días
-    rango_fechas = f"{hoy.strftime('%Y%m%d')}-{(hoy + timedelta(days=4)).strftime('%Y%m%d')}"
-    datos_por_liga = {}
+    fechas = [(hoy + timedelta(days=i)).strftime("%Y%m%d") for i in range(6)]
+    datos_por_liga = {liga["id"]: {"meta": liga, "eventos": []} for liga in LIGAS_PRINCIPALES}
+    ids_vistos = set()
 
     for liga in LIGAS_PRINCIPALES:
-        url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{liga['espn']}/scoreboard?dates={rango_fechas}"
-        try:
-            res = requests.get(url, timeout=4)
-            if res.status_code == 200:
-                eventos = res.json().get("events", [])
-                if eventos:
-                    datos_por_liga[liga["id"]] = {
-                        "meta": liga,
-                        "eventos": eventos
-                    }
-        except Exception:
-            pass
+        for f_str in fechas:
+            url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{liga['espn']}/scoreboard?dates={f_str}"
+            try:
+                res = requests.get(url, timeout=3)
+                if res.status_code == 200:
+                    eventos = res.json().get("events", [])
+                    for ev in eventos:
+                        ev_id = ev.get("id")
+                        if ev_id not in ids_vistos:
+                            ids_vistos.add(ev_id)
+                            datos_por_liga[liga["id"]]["eventos"].append(ev)
+            except Exception:
+                pass
     return datos_por_liga
+
+datos_jornada = obtener_todos_los_partidos()
+
+# Construir lista total de nombres de partidos para el selector de notificaciones
+lista_todos_partidos = []
+for nom_liga, contenido in datos_jornada.items():
+    for ev in contenido["eventos"]:
+        comp = ev.get("competitions", [{}])[0]
+        competitors = comp.get("competitors", [])
+        if len(competitors) == 2:
+            nl = competitors[0].get("team", {}).get("shortDisplayName", "Local")
+            nv = competitors[1].get("team", {}).get("shortDisplayName", "Visita")
+            lista_todos_partidos.append(f"{nl} vs {nv} ({nom_liga})")
 
 # =============================================================================
 # ESTRUCTURA DE LAS 3 SECCIONES
 # =============================================================================
 sec_futbol, sec_apuestas, sec_live = st.tabs([
-    "⚽ 1. RESULTADOS Y JORNADA (PORTADA)", 
-    "🎯 2. APUESTAS OVER 1.5 (MOTOR BIG DATA)", 
+    "⚽ 1. RESULTADOS Y PRÓXIMOS PARTIDOS", 
+    "🎯 2. APUESTAS OVER 1.5 (BIG DATA)", 
     "🚨 3. SCRAPING EN VIVO (CAZADOR DE 0-0)"
 ])
 
-datos_jornada = obtener_jornada_automatica()
-
 # -----------------------------------------------------------------------------
-# SECCIÓN 1: PORTADA DE FÚTBOL AUTOMÁTICA CON ESCUDOS (ESTILO CAPTURA)
+# SECCIÓN 1: PORTADA DE FÚTBOL CON CAMPANITA INDIVIDUAL POR PARTIDO
 # -----------------------------------------------------------------------------
 with sec_futbol:
-    filtro_vista = st.radio(
-        "Filtro rápido:", 
-        ["📅 Todos los Partidos de la Jornada", "🔴 Solo En Vivo"], 
-        horizontal=True,
-        label_visibility="collapsed"
-    )
-
-    hay_partidos_mostrados = False
-
+    st.markdown("##### 🔔 Activa la campanita a la derecha de cualquier partido si quieres recibir alertas exclusivas de ese encuentro:")
+    
+    total_mostrados = 0
     for nombre_liga, contenido in datos_jornada.items():
         eventos = contenido["eventos"]
-        filas_html = ""
+        if not eventos:
+            continue
+
+        st.markdown(f"<div class='liga-header'>{nombre_liga}</div>", unsafe_allow_html=True)
 
         for ev in eventos:
             comp = ev.get("competitions", [{}])[0]
@@ -276,12 +283,9 @@ with sec_futbol:
             detalle_corto = comp.get("status", {}).get("type", {}).get("shortDetail", "")
             reloj = comp.get("status", {}).get("displayClock", "")
 
-            if filtro_vista == "🔴 Solo En Vivo" and st_state != "in":
-                continue
-
             competitors = comp.get("competitors", [])
             if len(competitors) == 2:
-                hay_partidos_mostrados = True
+                total_mostrados += 1
                 loc = competitors[0]
                 vis = competitors[1]
 
@@ -291,12 +295,13 @@ with sec_futbol:
                 logo_v = vis.get("team", {}).get("logo", "https://a.espncdn.com/i/teamlogos/soccer/500/default-team-logo-500.png")
                 gol_l = loc.get("score", "0")
                 gol_v = vis.get("score", "0")
+                id_unico_partido = f"{nom_l} vs {nom_v} ({nombre_liga})"
 
                 if st_state == "in":
                     badge_html = f"<div class='status-live'>🔴 {reloj}</div>"
                     centro_html = f"{gol_l} - {gol_v}"
                 elif st_state == "post":
-                    badge_html = "<div class='status-badge'>TC</div>"
+                    badge_html = "<div class='status-badge'>FINAL</div>"
                     centro_html = f"{gol_l} - {gol_v}"
                 else:
                     try:
@@ -307,31 +312,34 @@ with sec_futbol:
                         badge_html = f"<div class='status-badge'>{detalle_corto}</div>"
                         centro_html = "vs"
 
-                filas_html += f"""
-                <div class="match-row">
-                    {badge_html}
-                    <div class="teams-container">
-                        <div class="team-home">{nom_l}</div>
-                        <img src="{logo_l}" class="team-logo">
-                        <div class="score-box">{centro_html}</div>
-                        <img src="{logo_v}" class="team-logo">
-                        <div class="team-away">{nom_v}</div>
+                col_card, col_bell = st.columns([10, 2])
+                with col_card:
+                    st.markdown(f"""
+                    <div class="match-card">
+                        {badge_html}
+                        <div class="teams-container">
+                            <div class="team-home">{nom_l}</div>
+                            <img src="{logo_l}" class="team-logo">
+                            <div class="score-box">{centro_html}</div>
+                            <img src="{logo_v}" class="team-logo">
+                            <div class="team-away">{nom_v}</div>
+                        </div>
                     </div>
-                </div>
-                """
-
-        if filas_html:
-            st.markdown(f"<div class='liga-header'>{nombre_liga}</div>{filas_html}", unsafe_allow_html=True)
-
-    if not hay_partidos_mostrados:
-        st.info("No hay partidos en curso en este preciso segundo. Cambia el botón a 'Todos los Partidos de la Jornada'.")
+                    """, unsafe_allow_html=True)
+                with col_bell:
+                    ya_seguido = id_unico_partido in st.session_state["seguidos"]
+                    chk = st.checkbox("🔔 Seguir", value=ya_seguido, key=f"bell_{ev.get('id')}")
+                    if chk and not ya_seguido:
+                        st.session_state["seguidos"].append(id_unico_partido)
+                    elif not chk and ya_seguido:
+                        st.session_state["seguidos"].remove(id_unico_partido)
 
 # -----------------------------------------------------------------------------
 # SECCIÓN 2: BUSCADOR AUTOMÁTICO DE APUESTAS OVER 1.5 (CON BIG DATA .INI)
 # -----------------------------------------------------------------------------
 with sec_apuestas:
     st.subheader("🎯 Auditoría Automática Over 1.5 (Champions + 5 Grandes Ligas)")
-    st.markdown("Cruza automáticamente toda la jornada activa con tu base de datos (**xG/Shot >= 0.12**, **Reyes de Casa vs Coladores** y **Anti-Cerrojo**).")
+    st.markdown("Cruza todos los partidos de hoy y los próximos días con tu base de datos (**xG/Shot >= 0.12**, **Reyes de Casa vs Coladores** y **Anti-Cerrojo**).")
 
     reporte_pre = []
     for nombre_liga, contenido in datos_jornada.items():
@@ -407,16 +415,27 @@ with sec_apuestas:
         st.dataframe(pd.DataFrame(reporte_pre), use_container_width=True, hide_index=True)
 
 # -----------------------------------------------------------------------------
-# SECCIÓN 3: SCRAPING EN VIVO Y MONITOREO AUTOMÁTICO DE LOS 0 A 0
+# SECCIÓN 3: SCRAPING EN VIVO Y NOTIFICACIONES SOLO DE PARTIDOS ELEGIDOS
 # -----------------------------------------------------------------------------
 with sec_live:
-    st.subheader("🚨 Cazador de 0-0 en Vivo (Champions + 5 Grandes Ligas)")
-    st.markdown("Vigila automáticamente los partidos en juego. Si detecta un **0-0** en el minuto 20+ con tiros al arco y asedio, lanza la **alerta visual y notificación Push** para entrarle al **Over 0.5 HT / 1.5 Live**.")
+    st.subheader("🚨 Cazador de 0-0 en Vivo & Notificaciones Personalizadas")
+    
+    # Selector legible para elegir o quitar partidos de tus notificaciones
+    partidos_elegidos = st.multiselect(
+        "🔔 Partidos con Notificación Activa (Solo recibirás alertas de los partidos que estén aquí):",
+        options=lista_todos_partidos,
+        default=st.session_state["seguidos"]
+    )
+    st.session_state["seguidos"] = partidos_elegidos
 
-    auto_monitor = st.checkbox("🔄 Mantener Radar 0-0 Auto-Actualizando cada 60 segundos", value=True)
+    col_m1, col_m2 = st.columns(2)
+    with col_m1:
+        auto_monitor = st.checkbox("🔄 Auto-Actualizar Marcadores y Tiros cada 60 seg", value=True)
+    with col_m2:
+        solo_seguidos = st.checkbox("👁️ Mostrar en la tabla solo los partidos que sigo con 🔔", value=False)
 
     partidos_monitoreados = []
-    alertas_cero_cero = []
+    alertas_legibles = []
 
     for nombre_liga, contenido in datos_jornada.items():
         for evento in contenido["eventos"]:
@@ -429,8 +448,13 @@ with sec_live:
             if len(competitors) == 2:
                 local = competitors[0]
                 visita = competitors[1]
-                nom_l = local.get("team", {}).get("displayName", "Local")
-                nom_v = visita.get("team", {}).get("displayName", "Visita")
+                nom_l = local.get("team", {}).get("shortDisplayName", "Local")
+                nom_v = visita.get("team", {}).get("shortDisplayName", "Visita")
+                id_unico = f"{nom_l} vs {nom_v} ({nombre_liga})"
+
+                if solo_seguidos and id_unico not in st.session_state["seguidos"]:
+                    continue
+
                 goles_l = int(local.get("score", 0) or 0)
                 goles_v = int(visita.get("score", 0) or 0)
                 goles_tot = goles_l + goles_v
@@ -452,44 +476,59 @@ with sec_live:
                 except:
                     min_num = 0
 
+                tiene_campanita = id_unico in st.session_state["seguidos"]
+                icono_campana = "🔔 Sí" if tiene_campanita else "🔕 No"
+
                 estado_alerta = "⚪ Sin alerta"
                 if status_type == "in":
                     if goles_tot == 0:
                         if min_num >= 20 and (sot_live >= 3 or tiros_live >= 6 or sot_h_l >= 6.5 or col_v):
-                            estado_alerta = "🚨 ¡ALERTA 0-0 MADURO! -> METER OVER 0.5 / 1.5"
-                            msg_alerta = f"{nom_l} vs {nom_v} ({reloj}) | 0-0 con {sot_live} tiros al arco y {tiros_live} disparos. ¡METER OVER 0.5 / 1.5!"
-                            alertas_cero_cero.append(msg_alerta)
-                            disparar_notificacion_push("🚨 ALERTA CAZADOR 0-0", msg_alerta)
+                            estado_alerta = "🚨 ¡0-0 MADURO! -> METER OVER 0.5 / 1.5"
+                            texto_claro = (
+                                f"⚽ PARTIDO: {nom_l} vs {nom_v} ({nombre_liga}) | "
+                                f"⏱️ Minuto: {reloj} (Marcador 0-0) | "
+                                f"🎯 Tiros al arco: {sot_live} ({tiros_live} disparos totales) | "
+                                f"👉 SEÑAL: METER OVER 0.5 HT / OVER 1.5 LIVE"
+                            )
+                            # Si el usuario activó la campanita en este partido (o no seleccionó ninguno en específico), avisa claro
+                            if tiene_campanita:
+                                alertas_legibles.append(texto_claro)
+                                enviar_notificacion_legible(f"{nom_l} vs {nom_v}", texto_claro)
                         else:
                             estado_alerta = f"👀 Vigilando 0-0 ({reloj})"
                     elif goles_tot == 1 and 20 <= min_num <= 75:
                         if sot_live >= 4 or tiros_live >= 8:
                             estado_alerta = "🔥 1-0 CON ASEDIO -> OVER 1.5 / 2.5 LIVE"
+                            if tiene_campanita:
+                                texto_claro = f"⚽ {nom_l} vs {nom_v} ({reloj}) va {goles_l}-{goles_v} con {sot_live} tiros a puerta. ¡Buscar Over 1.5 / 2.5!"
+                                alertas_legibles.append(texto_claro)
+                                enviar_notificacion_legible(f"{nom_l} vs {nom_v}", texto_claro)
                         else:
                             estado_alerta = "🟢 1 Gol - Ritmo normal"
                     elif goles_tot >= 2:
                         estado_alerta = "✅ OVER 1.5 COBRADO"
                 elif status_type == "pre":
-                    estado_alerta = "⏳ Por jugar (En cola para vigilar 0-0)"
+                    estado_alerta = "⏳ Programado (Listo para vigilar 0-0)"
                 else:
                     estado_alerta = "🏁 Finalizado"
 
                 partidos_monitoreados.append({
+                    "Notificar 🔔": icono_campana,
                     "Estado": f"🔴 {reloj}" if status_type == "in" else detalle,
                     "Torneo": nombre_liga,
                     "Encuentro": f"{nom_l} vs {nom_v}",
                     "Marcador": f"{goles_l} - {goles_v}",
-                    "🎯 Tiros al Arco (Live)": sot_live,
-                    "💥 Disparos Totales": tiros_live,
-                    "Perfil Big Data": f"{tag_l} vs {tag_v}",
-                    "🔔 RADAR CAZADOR 0-0": estado_alerta
+                    "🎯 Tiros al Arco": sot_live,
+                    "💥 Disparos": tiros_live,
+                    "SEÑAL CAZADOR 0-0": estado_alerta
                 })
 
-    if alertas_cero_cero:
-        for al in alertas_cero_cero:
-            st.error(f"🔥 **CAZA 0-0 DETECTADA**: {al}")
+    if alertas_legibles:
+        st.markdown("### 🔔 TUS NOTIFICACIONES EN VIVO DE PARTIDOS SEGUIDOS:")
+        for al in alertas_legibles:
+            st.error(al)
     else:
-        st.success("📡 Vigilante 0-0 activo y escaneando la jornada automáticamente.")
+        st.info("📡 Marca la casilla '🔔 Seguir' en los partidos de la Portada (o elígelos arriba) para recibir notificaciones legibles únicamente de los juegos que te interesan.")
 
     if partidos_monitoreados:
         st.dataframe(pd.DataFrame(partidos_monitoreados), use_container_width=True, hide_index=True)
