@@ -1,4 +1,6 @@
 streamlit
 pandas
-scipy
 requests
+scipy
+gspread
+google-auth
