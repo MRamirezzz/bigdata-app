@@ -2,60 +2,21 @@ import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
 import requests
-import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from scipy.stats import poisson
 
-try:
-    from fpdf import FPDF
-    PDF_DISPONIBLE = True
-except ImportError:
-    PDF_DISPONIBLE = False
-
 # Configuración principal con la marca MRFUTBOL
 st.set_page_config(page_title="MRFUTBOL - Miguel Ramirez", page_icon="⚽", layout="wide")
 
-# =============================================================================
-# PERSISTENCIA PERMANENTE POR USUARIO (SOBREVIVE AL AUTO-REFRESCO Y RECARGAS)
-# =============================================================================
-qp = st.query_params
-
-if "user_phone" not in st.session_state:
-    st.session_state["user_phone"] = qp.get("phone", "")
-if "user_apikey" not in st.session_state:
-    st.session_state["user_apikey"] = qp.get("apikey", "")
-if "master_sound" not in st.session_state:
-    st.session_state["master_sound"] = (qp.get("sound", "1") == "1")
-if "auto_refresh" not in st.session_state:
-    st.session_state["auto_refresh"] = (qp.get("refresh", "1") == "1")
-if "scraping_modo_todos" not in st.session_state:
-    st.session_state["scraping_modo_todos"] = (qp.get("scrapall", "0") == "1")
-
 if "seguidos_portada" not in st.session_state:
-    seg_str = qp.get("seg", "")
-    st.session_state["seguidos_portada"] = [x for x in seg_str.split(",") if x]
-if "seguidos_scraping" not in st.session_state:
-    scr_str = qp.get("scr", "")
-    st.session_state["seguidos_scraping"] = [x for x in scr_str.split(",") if x]
-
+    st.session_state["seguidos_portada"] = []
 if "memoria_eventos" not in st.session_state:
     st.session_state["memoria_eventos"] = {}
-if "alertas_enviadas_wa" not in st.session_state:
-    st.session_state["alertas_enviadas_wa"] = set()
 if "historial_notificaciones" not in st.session_state:
     st.session_state["historial_notificaciones"] = []
 
-def guardar_estado_permanente():
-    st.query_params["phone"] = st.session_state["user_phone"]
-    st.query_params["apikey"] = st.session_state["user_apikey"]
-    st.query_params["sound"] = "1" if st.session_state["master_sound"] else "0"
-    st.query_params["refresh"] = "1" if st.session_state["auto_refresh"] else "0"
-    st.query_params["scrapall"] = "1" if st.session_state["scraping_modo_todos"] else "0"
-    st.query_params["seg"] = ",".join(st.session_state["seguidos_portada"])
-    st.query_params["scr"] = ",".join(st.session_state["seguidos_scraping"])
-
-# ESTILOS CSS COMPACTOS
+# ESTILOS CSS COMPACTOS (OPTIMIZADO PARA MÓVIL Y PC)
 st.markdown("""
 <style>
 .titulo-mrfutbol {
@@ -168,176 +129,39 @@ st.markdown("""
 st.markdown("<div class='titulo-mrfutbol'>⚽ MRFUTBOL</div>", unsafe_allow_html=True)
 st.markdown("<div class='subtitulo-autor'>Miguel Ramirez &nbsp;|&nbsp; ✉️ angelramirezzmiguel2@gmail.com</div>", unsafe_allow_html=True)
 
-# =============================================================================
-# MOTOR DE ENVÍO INDIVIDUAL A WHATSAPP Y ALERTA SONORA
-# =============================================================================
-def enviar_whatsapp_usuario(texto_mensaje):
-    telefono = st.session_state["user_phone"].strip().replace(" ", "").replace("-", "")
-    apikey = st.session_state["user_apikey"].strip()
-    if not telefono or not apikey:
-        return False
-    try:
-        msg_encoded = urllib.parse.quote(f"⚽ *MRFUTBOL VIP*\n{texto_mensaje}")
-        url = f"https://api.callmebot.com/whatsapp.php?phone={telefono}&text={msg_encoded}&apikey={apikey}"
-        requests.get(url, timeout=4)
-        return True
-    except:
-        return False
+col_master1, col_master2, col_master3 = st.columns([2.5, 1, 1])
+with col_master1:
+    st.caption("💡 Central de Inteligencia y Algoritmo en Vivo MRFUTBOL.")
+with col_master2:
+    # EL KEY ASEGURA QUE LA ALARMA NUNCA SE REINICIA SOLA
+    master_sound = st.toggle("🔔 Alertas Activas", value=True, key="master_sound_key")
+with col_master3:
+    auto_refresh = st.toggle("🔄 Auto-Refresco (2m)", value=True, key="auto_refresh_key")
 
-def disparar_alerta_evento(id_unico_alerta, titulo, mensaje, icono="🔔"):
-    # Respeta el apagado permanente del usuario
-    if not st.session_state["master_sound"]:
+def disparar_alerta_celular(titulo, mensaje, icono="🔔"):
+    if not master_sound:
         return
-
-    if id_unico_alerta in st.session_state["alertas_enviadas_wa"]:
-        return
-    st.session_state["alertas_enviadas_wa"].add(id_unico_alerta)
-
     hora_actual = (datetime.utcnow() - timedelta(hours=6)).strftime("%H:%M:%S")
     registro = f"[{hora_actual}] {icono} **{titulo}**: {mensaje}"
-    st.toast(f"**{titulo}**\n\n{mensaje}", icon=icono)
-    st.session_state["historial_notificaciones"].insert(0, registro)
-
-    # Enviar al WhatsApp registrado por este usuario
-    enviar_whatsapp_usuario(f"{icono} *{titulo}*\n{mensaje}")
-
-    # Sonido en navegador (para PC / Laptop)
-    components.html("""
-    <script>
-    try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(880, ctx.currentTime);
-        gain.gain.setValueAtTime(0.15, ctx.currentTime);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.35);
-    } catch(e) {}
-    </script>
-    """, height=0)
-
-# =============================================================================
-# PANEL SUPERIOR: REGISTRO MULTIUSUARIO WHATSAPP + APAGADO PERMANENTE
-# =============================================================================
-col_top1, col_top2, col_top3 = st.columns([2.2, 1.4, 1.4])
-with col_top1:
-    estado_wa = "🟢 WhatsApp Conectado" if (st.session_state["user_phone"] and st.session_state["user_apikey"]) else "⚪ WhatsApp Sin Vincular (Abre el panel abajo)"
-    st.caption(f"💡 Estado de tu línea personal: **{estado_wa}**")
-with col_top2:
-    nuevo_sound = st.toggle(
-        "🔔 Notificaciones Activas (Permanente)",
-        value=st.session_state["master_sound"],
-        key="toggle_master_ui"
-    )
-    if nuevo_sound != st.session_state["master_sound"]:
-        st.session_state["master_sound"] = nuevo_sound
-        guardar_estado_permanente()
-        st.rerun()
-with col_top3:
-    nuevo_ref = st.toggle(
-        "🔄 Auto-Refresco (2m)",
-        value=st.session_state["auto_refresh"],
-        key="toggle_ref_ui"
-    )
-    if nuevo_ref != st.session_state["auto_refresh"]:
-        st.session_state["auto_refresh"] = nuevo_ref
-        guardar_estado_permanente()
-        st.rerun()
-
-with st.expander("📲 Registro de Usuario para Alertas en tu WhatsApp Personal (Multiusuario)", expanded=False):
-    st.markdown("""
-    **¿Cómo recibir las alertas de tus partidos en tu propio WhatsApp en 30 segundos?**
-    1. Haz clic aquí desde tu celular o WhatsApp Web: 👉 [**Activar Bot de WhatsApp MRFUTBOL**](https://api.callmebot.com/whatsapp.php?source=web) o envía el mensaje **`I allow callmebot to send me messages`** al número **`+34 698 28 89 73`** en WhatsApp.
-    2. El bot te responderá al instante con tu código **API Key** personal.
-    3. Ingresa tu número (con código de país, ej. `+50499887766`) y tu código abajo. ¡Tus datos quedan guardados en tu enlace personal!
-    """)
-    c_wa1, c_wa2, c_wa3 = st.columns([2, 1.5, 1.5])
-    with c_wa1:
-        inp_phone = st.text_input("📱 Tu Número de WhatsApp (con + y código de país):", value=st.session_state["user_phone"], placeholder="Ej: +50499999999")
-    with c_wa2:
-        inp_key = st.text_input("🔑 Tu Clave del Bot (API Key):", value=st.session_state["user_apikey"], placeholder="Ej: 1234567")
-    with c_wa3:
-        st.write("")
-        st.write("")
-        if st.button("💾 Guardar y Probar mi WhatsApp", use_container_width=True):
-            st.session_state["user_phone"] = inp_phone.strip()
-            st.session_state["user_apikey"] = inp_key.strip()
-            guardar_estado_permanente()
-            ok = enviar_whatsapp_usuario("✅ ¡Tu número ha quedado vinculado a MRFUTBOL! Recibirás aquí las alertas de los partidos que actives.")
-            if ok:
-                st.success("✅ ¡Guardado! Revisa tu WhatsApp, te acabamos de enviar un mensaje de prueba.")
-            else:
-                st.warning("⚠️ Datos guardados, pero verifica que hayas ingresado el número con signo '+' y tu API Key correcta.")
-
-# =============================================================================
-# FUNCIÓN GENERADORA DE REPORTE PDF PROFESIONAL
-# =============================================================================
-def generar_pdf_preapuestas(df_reporte):
-    if not PDF_DISPONIBLE:
-        return None
-    pdf = FPDF(orientation="L", unit="mm", format="A4")
-    pdf.add_page()
-    
-    # Encabezado Oscuro MRFUTBOL
-    pdf.set_fill_color(22, 24, 31)
-    pdf.rect(0, 0, 297, 26, "F")
-    pdf.set_text_color(0, 255, 204)
-    pdf.set_font("Helvetica", "B", 18)
-    pdf.cell(0, 10, "MRFUTBOL - REPORTE OFICIAL DE PRE-APUESTAS (OVER 1.5)", new_x="LMARGIN", new_y="NEXT", align="C")
-    
-    hora_rep = (datetime.utcnow() - timedelta(hours=6)).strftime("%d/%m/%Y %H:%M")
-    pdf.set_text_color(230, 230, 230)
-    pdf.set_font("Helvetica", "", 10)
-    pdf.cell(0, 7, f"Autor: Miguel Ramirez | angelramirezzmiguel2@gmail.com | Generado: {hora_rep}", new_x="LMARGIN", new_y="NEXT", align="C")
-    pdf.ln(6)
-
-    # Cabecera de la tabla
-    pdf.set_fill_color(31, 34, 45)
-    pdf.set_text_color(0, 255, 204)
-    pdf.set_font("Helvetica", "B", 9)
-    anchos = [26, 48, 72, 22, 26, 22, 61]
-    columnas = ["Fecha", "Liga", "Partido", "xG Esp.", "Prob. Over 1.5", "Cuota", "Veredicto"]
-    
-    for ancho, col_nom in zip(anchos, columnas):
-        pdf.cell(ancho, 8, col_nom, border=1, align="C", fill=True)
-    pdf.ln()
-
-    # Filas de partidos
-    pdf.set_text_color(20, 20, 20)
-    pdf.set_font("Helvetica", "", 9)
-    fill_row = False
-    for _, row in df_reporte.iterrows():
-        pdf.set_fill_color(240, 244, 248) if fill_row else pdf.set_fill_color(255, 255, 255)
-        
-        # Limpiar emojis para que el PDF estándar no falle con caracteres especiales
-        liga_clean = str(row["Liga"]).encode("latin-1", "ignore").decode("latin-1").strip()
-        partido_clean = str(row["Partido"]).encode("latin-1", "ignore").decode("latin-1").strip()
-        ver_raw = str(row["Veredicto"])
-        if "Cuota de Valor" in ver_raw:
-            ver_clean = "ENTRAR OVER 1.5 (Cuota de Valor)"
-        elif "Fijo Alta" in ver_raw:
-            ver_clean = "ENTRAR OVER 1.5 (Fijo Alta Prob.)"
-        else:
-            ver_clean = "VALOR MODERADO (Para En Vivo)"
-
-        valores = [
-            str(row["Fecha"]),
-            liga_clean[:26],
-            partido_clean[:38],
-            str(row["xG Esperado"]),
-            str(row["Prob. Pre Over 1.5"]),
-            str(row["Cuota Estimada"]),
-            ver_clean
-        ]
-        for ancho, val in zip(anchos, valores):
-            pdf.cell(ancho, 7, val, border=1, align="C", fill=True)
-        pdf.ln()
-        fill_row = not fill_row
-
-    return bytes(pdf.output())
+    if not st.session_state["historial_notificaciones"] or st.session_state["historial_notificaciones"][0] != registro:
+        st.toast(f"**{titulo}**\n\n{mensaje}", icon=icono)
+        st.session_state["historial_notificaciones"].insert(0, registro)
+        components.html("""
+        <script>
+        try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(880, ctx.currentTime);
+            gain.gain.setValueAtTime(0.12, ctx.currentTime);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.3);
+        } catch(e) {}
+        </script>
+        """, height=0)
 
 # =============================================================================
 # LAS 19 LIGAS OFICIALES DEL ARCHIVO BIG DATA (.INI) + CHAMPIONS LEAGUE
@@ -489,7 +313,7 @@ def calcular_pre_poisson_real(nom_local, nom_visita, stats_temporada):
     if real_l and real_v:
         xg_real_api = ((real_l["gf_prom"] + real_v["gc_prom"]) / 2.0) * 1.08 + ((real_v["gf_prom"] + real_l["gc_prom"]) / 2.0)
         xg_base = round((xg_real_api * 0.70) + (xg_ini * 0.30), 2)
-        fuente_tag = f"📊 Prom. Real ({real_l['gf_prom']} GF / {real_v['gf_prom']} GF)"
+        fuente_tag = f"📊 API Real ({real_l['gf_prom']} GF / {real_v['gf_prom']} GF)"
     else:
         bono_col = 0.30 if (col_l or col_v) else 0.0
         xg_base = round(xg_ini + bono_col, 2)
@@ -620,12 +444,12 @@ stats_temporada_api = obtener_estadisticas_temporada_reales(codigos_todas)
 sec_resultados, sec_en_vivo, sec_apuestas, sec_scraping = st.tabs([
     "⚽ 1. RESULTADOS", 
     "🔴 2. PARTIDOS EN VIVO", 
-    "🎯 3. PRE-APUESTAS (PDF)", 
+    "🎯 3. PRE-APUESTAS", 
     "🚨 4. SCRAPING Y ALERTAS"
 ])
 
 # -----------------------------------------------------------------------------
-# SECCIÓN 1: RESULTADOS GENERALES Y NOTIFICACIÓN INDIVIDUAL POR PARTIDO
+# SECCIÓN 1: RESULTADOS GENERALES Y CAMPANITA DE SEGUIMIENTO
 # -----------------------------------------------------------------------------
 with sec_resultados:
     col_menu, col_contenido = st.columns([1.2, 3.8])
@@ -727,7 +551,7 @@ with sec_resultados:
 
                 with col_bell:
                     ya_seguido = ev_id in st.session_state["seguidos_portada"]
-                    activar_si = st.checkbox("🔔 Seguir", value=ya_seguido, key=f"portada_bell_{ev_id}")
+                    activar_si = st.checkbox("🔔 Sí", value=ya_seguido, key=f"portada_bell_{ev_id}")
 
                     if activar_si and not ya_seguido:
                         st.session_state["seguidos_portada"].append(ev_id)
@@ -738,35 +562,25 @@ with sec_resultados:
                             "goles_v": gol_v,
                             "rojas": rojas_actuales
                         }
-                        guardar_estado_permanente()
-                        disparar_alerta_evento(f"seg_on_{ev_id}", f"Seguimiento Activo: {nombre_cruce}", "Te avisaremos goles, descanso, rojas y final.", "✅")
+                        disparar_alerta_celular(f"Seguimiento: {nombre_cruce}", "Alertas activadas para este partido.", "✅")
                     elif not activar_si and ya_seguido:
                         st.session_state["seguidos_portada"].remove(ev_id)
-                        guardar_estado_permanente()
 
-                    if activar_si:
-                        if ev_id not in st.session_state["memoria_eventos"]:
-                            st.session_state["memoria_eventos"][ev_id] = {
-                                "state": st_state,
-                                "ht_notificado": es_ht,
-                                "goles_l": gol_l,
-                                "goles_v": gol_v,
-                                "rojas": rojas_actuales
-                            }
+                    if activar_si and ev_id in st.session_state["memoria_eventos"]:
                         mem = st.session_state["memoria_eventos"][ev_id]
                         if mem["state"] == "pre" and st_state == "in":
-                            disparar_alerta_evento(f"ini_{ev_id}", "⏳ ¡ARRANCÓ EL PARTIDO!", f"{nombre_cruce} (0-0)", "🟢")
+                            disparar_alerta_celular("⏳ ¡ARRANCÓ EL PARTIDO!", f"{nombre_cruce} (0-0)", "🟢")
                         if es_ht and not mem["ht_notificado"]:
-                            disparar_alerta_evento(f"ht_{ev_id}", "⏸️ ENTRETIEMPO (HT)", f"{nombre_cruce} | Marcador: {gol_l}-{gol_v}", "⏱️")
+                            disparar_alerta_celular("⏸️ ENTRETIEMPO (HT)", f"{nombre_cruce} | Marcador: {gol_l}-{gol_v}", "⏱️")
                             mem["ht_notificado"] = True
                         if (gol_l + gol_v) > (mem["goles_l"] + mem["goles_v"]):
-                            disparar_alerta_evento(f"gol_{ev_id}_{gol_l}_{gol_v}", f"⚽ ¡GOL EN {nombre_cruce}!", f"Nuevo marcador: {gol_l}-{gol_v}", "⚽")
+                            disparar_alerta_celular(f"⚽ ¡GOL EN {nombre_cruce}!", f"Nuevo marcador: {gol_l}-{gol_v}", "⚽")
                         elif (gol_l + gol_v) < (mem["goles_l"] + mem["goles_v"]):
-                            disparar_alerta_evento(f"var_{ev_id}_{gol_l}_{gol_v}", "❌ ¡GOL ANULADO (VAR)!", f"{nombre_cruce} vuelve a {gol_l}-{gol_v}", "🚫")
+                            disparar_alerta_celular("❌ ¡GOL ANULADO (VAR)!", f"{nombre_cruce} vuelve a {gol_l}-{gol_v}", "🚫")
                         if rojas_actuales > mem["rojas"]:
-                            disparar_alerta_evento(f"roja_{ev_id}_{rojas_actuales}", "🟥 ¡TARJETA ROJA!", f"Expulsión en {nombre_cruce}", "🟥")
+                            disparar_alerta_celular("🟥 ¡TARJETA ROJA!", f"Expulsión en {nombre_cruce}", "🟥")
                         if mem["state"] != "post" and st_state == "post":
-                            disparar_alerta_evento(f"fin_{ev_id}", "🏁 FINAL DEL PARTIDO", f"{nombre_cruce} terminó {gol_l}-{gol_v}", "🏁")
+                            disparar_alerta_celular("🏁 FINAL DEL PARTIDO", f"{nombre_cruce} terminó {gol_l}-{gol_v}", "🏁")
 
                         st.session_state["memoria_eventos"][ev_id].update({
                             "state": st_state,
@@ -776,12 +590,12 @@ with sec_resultados:
                         })
 
     if st.session_state["historial_notificaciones"]:
-        with st.expander("📲 Bandeja de Alertas Enviadas en esta Sesión", expanded=False):
-            for notif in st.session_state["historial_notificaciones"][:10]:
+        with st.expander("📲 Bandeja de Alertas Recientes", expanded=False):
+            for notif in st.session_state["historial_notificaciones"][:8]:
                 st.info(notif)
 
 # -----------------------------------------------------------------------------
-# SECCIÓN 2: PARTIDOS EN VIVO
+# SECCIÓN 2: PARTIDOS EN VIVO (DATOS 100% REALES DE LA API)
 # -----------------------------------------------------------------------------
 with sec_en_vivo:
     st.subheader("🔴 Partidos en Vivo y Entretiempo")
@@ -865,11 +679,11 @@ with sec_en_vivo:
         st.info("No hay partidos en curso en este preciso instante en las 19 ligas.")
 
 # -----------------------------------------------------------------------------
-# SECCIÓN 3: PRE-APUESTAS OVER 1.5 + DESCARGA DE REPORTE EN PDF
+# SECCIÓN 3: PRE-APUESTAS OVER 1.5
 # -----------------------------------------------------------------------------
 with sec_apuestas:
-    st.subheader("🎯 Laboratorio Pre-Apuesta Over 1.5 + Exportación a PDF")
-    st.caption("Cruza los goles reales anotados y recibidos por cada equipo con tu base de datos y descarga el boletín en PDF.")
+    st.subheader("🎯 Laboratorio Pre-Apuesta Over 1.5 (Promedios Reales de Temporada)")
+    st.caption("Cruza los goles reales anotados y recibidos por cada equipo en la tabla actual de la API con tu base de datos.")
 
     col_f1, col_f2 = st.columns([2.5, 1.5])
     with col_f1:
@@ -907,64 +721,30 @@ with sec_apuestas:
                     reporte_pre.append({
                         "Fecha": fecha_str,
                         "Liga": nombre_liga,
-                        "Partido": f"{nom_local} vs {nom_v if 'nom_v' in locals() else nom_visita}",
+                        "Partido": f"{nom_local} vs {nom_visita}",
                         "xG Esperado": xg_base,
                         "Prob. Pre Over 1.5": f"{prob_final}%",
                         "Cuota Estimada": cuota_justa,
                         "Base de Cálculo": fuente_tag,
                         "Veredicto": veredicto
                     })
-                    reporte_pre[-1]["Partido"] = f"{nom_local} vs {nom_visita}"
 
     if reporte_pre:
-        df_pre = pd.DataFrame(reporte_pre)
-        
-        # BOTÓN DE DESCARGA DIRECTA EN PDF
-        col_btn_pdf, col_info_pdf = st.columns([1.5, 2.5])
-        with col_btn_pdf:
-            if PDF_DISPONIBLE:
-                pdf_bytes = generar_pdf_preapuestas(df_pre)
-                fecha_arch = (datetime.utcnow() - timedelta(hours=6)).strftime("%Y%m%d_%H%M")
-                st.download_button(
-                    label="📄 DESCARGAR REPORTE PRE-APUESTA EN PDF",
-                    data=pdf_bytes,
-                    file_name=f"MRFUTBOL_PreApuestas_{fecha_arch}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True
-                )
-            else:
-                st.warning("⚠️ Agrega `fpdf2` en tu archivo requirements.txt de GitHub para habilitar el botón PDF.")
-        with col_info_pdf:
-            st.caption(f"✅ Se encontraron **{len(df_pre)} partidos** listos para incluir en tu boletín PDF.")
-
-        st.dataframe(df_pre, use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(reporte_pre), use_container_width=True, hide_index=True)
     else:
         st.info("No hay partidos programados que cumplan el filtro actual. Puedes bajar el deslizador de porcentaje.")
 
 # -----------------------------------------------------------------------------
-# SECCIÓN 4: SCRAPING Y ALERTAS INDIVIDUALES POR PARTIDO EN VIVO
+# SECCIÓN 4: SCRAPING Y ALERTAS EN VIVO
 # -----------------------------------------------------------------------------
 with sec_scraping:
-    st.subheader("🚨 Motor de Scraping y Alertas Individuales en Vivo")
-    
-    c_sc1, c_sc2 = st.columns([2.8, 1.2])
-    with c_sc1:
-        st.markdown(
-            "Marca la casilla **`🔔 Alerta VIP`** en los partidos en vivo de los que quieras recibir aviso de entrada "
-            "a **Over 0.5** o **Over 1.5** en tu WhatsApp."
-        )
-    with c_sc2:
-        modo_todos = st.toggle(
-            "📢 Alertar en TODOS los partidos",
-            value=st.session_state["scraping_modo_todos"],
-            key="toggle_scrap_all"
-        )
-        if modo_todos != st.session_state["scraping_modo_todos"]:
-            st.session_state["scraping_modo_todos"] = modo_todos
-            guardar_estado_permanente()
-            st.rerun()
+    st.subheader("🚨 Motor de Scraping y Recomendación en Vivo (100% Datos Reales)")
+    st.markdown(
+        "Cruza el **% esperado en Pre-Apuesta** con los **Disparos Totales, Tiros al Arco y Córneres reales** de la API "
+        "para recomendarte la entrada a **Over 0.5** o **Over 1.5** sin métricas inventadas."
+    )
 
-    partidos_scraping_activos = False
+    tabla_scraping = []
     for nombre_liga, contenido in datos_globales.items():
         for evento in contenido["eventos"]:
             comp = evento.get("competitions", [{}])[0]
@@ -974,14 +754,11 @@ with sec_scraping:
 
             competitors = comp.get("competitors", [])
             if len(competitors) == 2:
-                partidos_scraping_activos = True
-                ev_id = str(evento.get("id"))
                 loc, vis = competitors[0], competitors[1]
                 nom_l_full = loc.get("team", {}).get("displayName", "Local")
                 nom_v_full = vis.get("team", {}).get("displayName", "Visita")
                 nom_l = loc.get("team", {}).get("shortDisplayName", nom_l_full)
                 nom_v = vis.get("team", {}).get("shortDisplayName", nom_v_full)
-                nombre_cruce = f"{nom_l} vs {nom_v}"
 
                 goles_l = int(loc.get("score", 0) or 0)
                 goles_v = int(vis.get("score", 0) or 0)
@@ -992,74 +769,55 @@ with sec_scraping:
                 toth_tot = stats["toth_tot"]
                 tmeta_tot = stats["tmeta_tot"]
 
-                # Control de suscripción individual en Scraping (o si también lo marcó en Portada)
-                seguido_indiv = (ev_id in st.session_state["seguidos_scraping"]) or (ev_id in st.session_state["seguidos_portada"])
-                col_s_info, col_s_chk = st.columns([9.5, 2.5])
-
-                with col_s_chk:
-                    chk_scrap = st.checkbox(
-                        "🔔 Alerta VIP",
-                        value=seguido_indiv,
-                        key=f"scr_bell_{ev_id}"
-                    )
-                    if chk_scrap and ev_id not in st.session_state["seguidos_scraping"]:
-                        st.session_state["seguidos_scraping"].append(ev_id)
-                        guardar_estado_permanente()
-                    elif not chk_scrap and ev_id in st.session_state["seguidos_scraping"]:
-                        st.session_state["seguidos_scraping"].remove(ev_id)
-                        guardar_estado_permanente()
-
-                debe_notificar = st.session_state["scraping_modo_todos"] or chk_scrap
-
                 veredicto_vivo = f"⏳ Calentando ({prob_pre}% Pre | Esperando Min 15+)"
                 if min_num >= 15 or es_ht:
                     if goles_tot == 0:
                         if tmeta_tot >= 2 or toth_tot >= 6 or (prob_pre >= 68 and toth_tot >= 4):
                             veredicto_vivo = (
                                 f"🚨 ¡ENTRAR AL OVER 0.5 GOLES! "
-                                f"(Pre: {prob_pre}% + En vivo: {toth_tot} Disp y {tmeta_tot} al Arco)"
+                                f"(Recomendado: {prob_pre}% Pre + Confirma en vivo con {toth_tot} Disparos y {tmeta_tot} al Arco)"
                             )
-                            if debe_notificar:
-                                disparar_alerta_evento(
-                                    f"ov05_{ev_id}",
-                                    f"🚨 ENTRAR OVER 0.5: {nombre_cruce}",
-                                    f"Reloj: {reloj_txt} (0-0) | Pre: {prob_pre}% | Disparos: {toth_tot} ({tmeta_tot} al arco)",
-                                    "🚨"
-                                )
+                            disparar_alerta_celular(
+                                f"ENTRAR OVER 0.5: {nom_l} vs {nom_v}",
+                                f"Pre: {prob_pre}% | Vivo ({reloj_txt}): {toth_tot} Disp ({stats['toth_l']}-{stats['toth_v']}), {tmeta_tot} Arco",
+                                "🚨"
+                            )
                         else:
                             veredicto_vivo = f"⚪ Monitoreando 0-0 (Pre: {prob_pre}% | {toth_tot} Disp, {tmeta_tot} Arco)"
                     elif goles_tot == 1:
                         if min_num <= 82 and (tmeta_tot >= 3 or toth_tot >= 7 or (prob_pre >= 68 and toth_tot >= 5)):
                             veredicto_vivo = (
                                 f"🔥 ¡ENTRAR AL OVER 1.5 GOLES! "
-                                f"(Pre: {prob_pre}% + En vivo: {toth_tot} Disp y {tmeta_tot} al Arco)"
+                                f"(Recomendado: {prob_pre}% Pre + Confirma en vivo con {toth_tot} Disparos y {tmeta_tot} al Arco)"
                             )
-                            if debe_notificar:
-                                disparar_alerta_evento(
-                                    f"ov15_{ev_id}",
-                                    f"🔥 ENTRAR OVER 1.5: {nombre_cruce}",
-                                    f"Reloj: {reloj_txt} ({goles_l}-{goles_v}) | Pre: {prob_pre}% | Disparos: {toth_tot} ({tmeta_tot} al arco)",
-                                    "🔥"
-                                )
+                            disparar_alerta_celular(
+                                f"ENTRAR OVER 1.5: {nom_l} vs {nom_v}",
+                                f"Pre: {prob_pre}% | Vivo ({reloj_txt}): {toth_tot} Disp ({stats['toth_l']}-{stats['toth_v']}), {tmeta_tot} Arco",
+                                "🔥"
+                            )
                         else:
                             veredicto_vivo = f"🟢 1 Gol en cancha (Pre: {prob_pre}% | {toth_tot} Disp, {tmeta_tot} Arco)"
                     else:
                         veredicto_vivo = f"✅ ¡LÍNEA OVER 1.5 COBRADA EN VERDE! ({goles_l}-{goles_v})"
 
-                with col_s_info:
-                    st.markdown(
-                        f"**{reloj_txt}** | {nombre_liga} | **{nombre_cruce}** (`{goles_l} - {goles_v}`) "
-                        f"— 📈 Pre: `{prob_pre}%` | 🎯 Disp: `{stats['toth_l']}-{stats['toth_v']} ({toth_tot})` | "
-                        f"🥅 Arco: `{stats['tmeta_l']}-{stats['tmeta_v']} ({tmeta_tot})`  \n"
-                        f"👉 **{veredicto_vivo}**"
-                    )
-                st.divider()
+                tabla_scraping.append({
+                    "Reloj": reloj_txt,
+                    "Liga": nombre_liga,
+                    "Partido": f"{nom_l} vs {nom_v}",
+                    "Marcador": f"{goles_l} - {goles_v}",
+                    "📈 Esperado Pre": f"{prob_pre}% (xG {xg_pre})",
+                    "🎯 Disparos (L-V)": f"{stats['toth_l']} - {stats['toth_v']} (Tot: {toth_tot})",
+                    "🥅 Al Arco (L-V)": f"{stats['tmeta_l']} - {stats['tmeta_v']} (Tot: {tmeta_tot})",
+                    "🚩 Córneres": f"{stats['esquinas_l']} - {stats['esquinas_v']}",
+                    "💡 Veredicto para el Cliente": veredicto_vivo
+                })
 
-    if not partidos_scraping_activos:
+    if tabla_scraping:
+        st.dataframe(pd.DataFrame(tabla_scraping), use_container_width=True, hide_index=True)
+    else:
         st.info("No hay partidos en vivo en este momento para evaluar en el motor de scraping.")
 
-# TEMPORIZADOR NO BLOQUEANTE AL FINAL DEL ARCHIVO (CONSERVANDO LOS PARÁMETROS DEL USUARIO)
-if st.session_state["auto_refresh"]:
+if auto_refresh:
     components.html("""
     <script>
     setTimeout(function() {
