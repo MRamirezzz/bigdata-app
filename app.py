@@ -120,7 +120,7 @@ st.markdown("<div class='subtitulo-autor'>Miguel Ramirez &nbsp;|&nbsp; ✉️ an
 
 col_master1, col_master2 = st.columns([3, 1])
 with col_master1:
-    st.caption("💡 Central de Análisis MRFUTBOL activa en tiempo real.")
+    st.caption("💡 Central de Análisis MRFUTBOL optimizada.")
 with col_master2:
     master_sound = st.toggle("🔔 Alertas Activas", value=True)
 
@@ -171,79 +171,32 @@ LIGAS_BIG_DATA = [
 ]
 
 TOP_DISPARADORES = {
-    "Bayern Munich": {"sot": 7.8, "xg_shot": 0.16, "tag": "👑 Rey Casa / Top SoT"},
-    "Celtic": {"sot": 8.0, "xg_shot": 0.16, "tag": "👑 Rey Casa / Top SoT"},
-    "PSV Eindhoven": {"sot": 7.5, "xg_shot": 0.15, "tag": "👑 Rey Casa / Top SoT"},
-    "Barcelona": {"sot": 7.4, "xg_shot": 0.15, "tag": "👑 Rey Casa / Top SoT"},
-    "Manchester City": {"sot": 7.2, "xg_shot": 0.14, "tag": "👑 Rey Casa / Top SoT"},
-    "Sporting CP": {"sot": 7.1, "xg_shot": 0.15, "tag": "👑 Rey Casa / Top SoT"},
-    "Bodo/Glimt": {"sot": 7.0, "xg_shot": 0.14, "tag": "👑 Rey Casa / Top SoT"},
-    "Galatasaray": {"sot": 7.0, "xg_shot": 0.14, "tag": "👑 Rey Casa / Top SoT"},
-    "Young Boys": {"sot": 6.8, "xg_shot": 0.14, "tag": "👑 Rey Casa / Top SoT"},
-    "Toluca": {"sot": 6.6, "xg_shot": 0.14, "tag": "👑 Rey Casa / Top SoT"},
-    "Inter Miami": {"sot": 6.5, "xg_shot": 0.15, "tag": "👑 Rey Casa / Top SoT"},
-    "Atalanta": {"sot": 6.5, "xg_shot": 0.13, "tag": "👑 Rey Casa / Top SoT"},
-    "Salzburg": {"sot": 6.4, "xg_shot": 0.14, "tag": "👑 Rey Casa / Top SoT"},
-    "Thun": {"sot": 6.3, "xg_shot": 0.13, "tag": "👑 Rey Casa / Top SoT"},
-    "Jong Ajax": {"sot": 6.2, "xg_shot": 0.13, "tag": "👑 Rey Casa"},
-    "Kongsvinger": {"sot": 6.1, "xg_shot": 0.13, "tag": "👑 Rey Casa"},
-    "Karlsruher": {"sot": 6.1, "xg_shot": 0.13, "tag": "👑 Rey Casa"},
-    "Tottenham": {"sot": 6.2, "xg_shot": 0.13, "tag": "👑 Rey Casa"},
-    "Union SG": {"sot": 6.2, "xg_shot": 0.13, "tag": "👑 Rey Casa"},
-    "Fenerbahce": {"sot": 6.5, "xg_shot": 0.14, "tag": "👑 Rey Casa"},
-    "Benfica": {"sot": 6.6, "xg_shot": 0.14, "tag": "👑 Rey Casa"},
-    "Inter": {"sot": 6.3, "xg_shot": 0.14, "tag": "👑 Rey Casa"},
-    "Paris Saint-Germain": {"sot": 7.1, "xg_shot": 0.15, "tag": "👑 Rey Casa"},
-    "AS Monaco": {"sot": 6.1, "xg_shot": 0.13, "tag": "👑 Rey Casa"},
+    "Bayern Munich": {"sot": 7.8, "xg_shot": 0.16, "tag": "👑 Rey Casa"},
+    "Celtic": {"sot": 8.0, "xg_shot": 0.16, "tag": "👑 Rey Casa"},
+    "PSV Eindhoven": {"sot": 7.5, "xg_shot": 0.15, "tag": "👑 Rey Casa"},
+    "Barcelona": {"sot": 7.4, "xg_shot": 0.15, "tag": "👑 Rey Casa"},
+    "Manchester City": {"sot": 7.2, "xg_shot": 0.14, "tag": "👑 Rey Casa"},
+    "Toluca": {"sot": 6.6, "xg_shot": 0.14, "tag": "👑 Rey Casa"},
     "Real Madrid": {"sot": 6.8, "xg_shot": 0.15, "tag": "👑 Rey Casa"},
 }
 
-DEFENSAS_COLADOR = [
-    "Baden", "Schaffhausen", "Yverdon", "Grasshopper", "Waalwijk", "Almere City",
-    "TOP Oss", "Jong Utrecht", "Sandefjord", "Haugesund", "Levanger", "Raufoss",
-    "Bochum", "Augsburg", "Braunschweig", "Regensburg", "Tirol", "Blau-Weiss Linz",
-    "Southampton", "Ipswich", "Leicester", "Kortrijk", "Eupen", "Ross County",
-    "St. Johnstone", "Hatayspor", "Konyaspor", "Estrela", "Farense", "San Jose",
-    "Chicago Fire", "Hellas Verona", "Venezia", "Angers", "Saint-Etienne",
-    "Espanyol", "Valladolid", "Puebla", "Mazatlan"
-]
-
-BLOQUES_CERROJO = ["Getafe", "Mallorca", "Empoli", "Everton"]
-
 def auditar_equipo_bd(nombre_equipo):
-    sot_base = 4.9
+    sot_base = 4.8
     xg_shot = 0.11
     etiqueta = "Estándar"
-    es_colador = False
-    es_cerrojo = False
-
     for k, val in TOP_DISPARADORES.items():
         if k.lower() in nombre_equipo.lower():
             sot_base = val["sot"]
             xg_shot = val["xg_shot"]
             etiqueta = val["tag"]
             break
-
-    for col in DEFENSAS_COLADOR:
-        if col.lower() in nombre_equipo.lower():
-            es_colador = True
-            etiqueta = "🧀 Defensa Colador" if etiqueta == "Estándar" else etiqueta + " / 🧀 Colador"
-            break
-
-    for cer in BLOQUES_CERROJO:
-        if cer.lower() in nombre_equipo.lower():
-            es_cerrojo = True
-            etiqueta = "🧱 Bloque Bajo (Cerrojo)"
-            break
-
-    return sot_base, xg_shot, etiqueta, es_colador, es_cerrojo
+    return sot_base, xg_shot, etiqueta
 
 def extraer_stat_espn(team_dict, stat_names):
     for st_item in team_dict.get("statistics", []):
         if st_item.get("name") in stat_names:
             try:
-                val = st_item.get("displayValue", "0")
-                return str(val)
+                return str(st_item.get("displayValue", "0"))
             except:
                 return "0"
     return "0"
@@ -251,38 +204,29 @@ def extraer_stat_espn(team_dict, stat_names):
 def formatear_fecha_local(iso_str):
     try:
         dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
-        dt_local = dt - timedelta(hours=6)
-        return dt_local.strftime("%d/%m %H:%M")
+        return (dt - timedelta(hours=6)).strftime("%d/%m %H:%M")
     except:
         return "Programado"
 
-@st.cache_data(ttl=15)
-def obtener_partidos_ligas(codigos_espn):
-    hoy = datetime.now()
-    fechas = [(hoy + timedelta(days=i)).strftime("%Y%m%d") for i in range(-1, 3)]
+@st.cache_data(ttl=30)
+def obtener_partidos_rapido(codigos_espn):
+    hoy = datetime.now().strftime("%Y%m%d")
     mapa_ligas = {l["espn"]: l for l in LIGAS_BIG_DATA}
     datos_por_liga = {mapa_ligas[c]["id"]: {"meta": mapa_ligas[c], "eventos": []} for c in codigos_espn if c in mapa_ligas}
-    ids_vistos = set()
-
+    
     for c in codigos_espn:
         if c not in mapa_ligas:
             continue
         liga_obj = mapa_ligas[c]
-        for f_str in fechas:
-            url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{c}/scoreboard?dates={f_str}"
-            try:
-                res = requests.get(url, timeout=3)
-                if res.status_code == 200:
-                    for ev in res.json().get("events", []):
-                        ev_id = ev.get("id")
-                        if ev_id not in ids_vistos:
-                            ids_vistos.add(ev_id)
-                            datos_por_liga[liga_obj["id"]]["eventos"].append(ev)
-            except Exception:
-                pass
+        url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{c}/scoreboard?dates={hoy}"
+        try:
+            res = requests.get(url, timeout=2)
+            if res.status_code == 200:
+                datos_por_liga[liga_obj["id"]]["eventos"] = res.json().get("events", [])
+        except:
+            pass
     return datos_por_liga
 
-# LAS 4 PESTAÑAS COMPLETAS Y RESTAURADAS
 sec_resultados, sec_en_vivo, sec_apuestas, sec_scraping = st.tabs([
     "⚽ 1. RESULTADOS", 
     "🔴 2. PARTIDOS EN VIVO", 
@@ -295,7 +239,6 @@ sec_resultados, sec_en_vivo, sec_apuestas, sec_scraping = st.tabs([
 # -----------------------------------------------------------------------------
 with sec_resultados:
     col_menu, col_contenido = st.columns([1.2, 3.8])
-
     with col_menu:
         st.markdown("##### 📌 Ligas Disponibles")
         nombres_ligas = [l["id"] for l in LIGAS_BIG_DATA]
@@ -304,404 +247,173 @@ with sec_resultados:
 
     with col_contenido:
         codigos_portada = [l["espn"] for l in LIGAS_BIG_DATA]
-        datos_portada = obtener_partidos_ligas(codigos_portada)
+        datos_portada = obtener_partidos_rapido(codigos_portada)
 
         for nombre_liga, contenido in datos_portada.items():
             if liga_seleccionada_panel != "🌍 Todas las 19 Ligas" and liga_seleccionada_panel != nombre_liga:
                 continue
-
             eventos = contenido["eventos"]
             if not eventos:
                 continue
 
-            eventos_filtrados = []
+            st.markdown(f"<div class='liga-header'>{nombre_liga}</div>", unsafe_allow_html=True)
             for ev in eventos:
                 comp = ev.get("competitions", [{}])[0]
                 competitors = comp.get("competitors", [])
                 if len(competitors) == 2:
-                    nom_l = competitors[0].get("team", {}).get("displayName", "")
-                    nom_v = competitors[1].get("team", {}).get("displayName", "")
-                    if not texto_busqueda or (texto_busqueda.lower() in nom_l.lower() or texto_busqueda.lower() in nom_v.lower()):
-                        eventos_filtrados.append(ev)
+                    nom_l = competitors[0].get("team", {}).get("shortDisplayName", "Local")
+                    nom_v = competitors[1].get("team", {}).get("shortDisplayName", "Visita")
+                    if texto_busqueda and texto_busqueda.lower() not in nom_l.lower() and texto_busqueda.lower() not in nom_v.lower():
+                        continue
 
-            if not eventos_filtrados:
-                continue
+                    ev_id = ev.get("id")
+                    st_state = comp.get("status", {}).get("type", {}).get("state", "pre")
+                    reloj = comp.get("status", {}).get("displayClock", "")
+                    gol_l = int(competitors[0].get("score", 0) or 0)
+                    gol_v = int(competitors[1].get("score", 0) or 0)
 
-            st.markdown(f"<div class='liga-header'>{nombre_liga}</div>", unsafe_allow_html=True)
+                    badge = f"<div class='status-live'>🔴 {reloj}</div>" if st_state == "in" else ("<div class='status-badge'>FINAL</div>" if st_state == "post" else f"<div class='status-badge'>{formatear_fecha_local(ev.get('date', ''))}</div>")
+                    score_txt = f"{gol_l} - {gol_v}" if st_state != "pre" else "vs"
 
-            for ev in eventos_filtrados:
-                ev_id = ev.get("id")
-                comp = ev.get("competitions", [{}])[0]
-                st_state = comp.get("status", {}).get("type", {}).get("state", "pre")
-                desc_estado = comp.get("status", {}).get("type", {}).get("description", "")
-                reloj = comp.get("status", {}).get("displayClock", "")
-                iso_fecha = ev.get("date", "")
-
-                competitors = comp.get("competitors", [])
-                if len(competitors) == 2:
-                    loc = competitors[0]
-                    vis = competitors[1]
-
-                    nom_l = loc.get("team", {}).get("shortDisplayName", loc.get("team", {}).get("displayName", "Local"))
-                    nom_v = vis.get("team", {}).get("shortDisplayName", vis.get("team", {}).get("displayName", "Visita"))
-                    logo_l = loc.get("team", {}).get("logo", "https://a.espncdn.com/i/teamlogos/soccer/500/default-team-logo-500.png")
-                    logo_v = vis.get("team", {}).get("logo", "https://a.espncdn.com/i/teamlogos/soccer/500/default-team-logo-500.png")
-                    gol_l = int(loc.get("score", 0) or 0)
-                    gol_v = int(vis.get("score", 0) or 0)
-                    nombre_cruce = f"{nom_l} vs {nom_v}"
-
-                    detalles_partido = comp.get("details", [])
-                    rojas_actuales = sum(1 for d in detalles_partido if d.get("redCard", False))
-
-                    if st_state == "in":
-                        badge_html = f"<div class='status-live'>🔴 {reloj}</div>"
-                        centro_html = f"{gol_l} - {gol_v}"
-                    elif st_state == "post":
-                        badge_html = "<div class='status-badge'>FINAL</div>"
-                        centro_html = f"{gol_l} - {gol_v}"
-                    else:
-                        fecha_legible = formatear_fecha_local(iso_fecha)
-                        badge_html = f"<div class='status-badge'>{fecha_legible}</div>"
-                        centro_html = "vs"
-
-                    col_card, col_bell = st.columns([10, 2])
-                    with col_card:
-                        st.markdown(f"""
-                        <div class="match-card">
-                            {badge_html}
-                            <div class="teams-container">
-                                <div class="team-home">{nom_l}</div>
-                                <img src="{logo_l}" class="team-logo">
-                                <div class="score-box">{centro_html}</div>
-                                <img src="{logo_v}" class="team-logo">
-                                <div class="team-away">{nom_v}</div>
-                            </div>
+                    st.markdown(f"""
+                    <div class="match-card">
+                        {badge}
+                        <div class="teams-container">
+                            <div class="team-home">{nom_l}</div>
+                            <div class="score-box">{score_txt}</div>
+                            <div class="team-away">{nom_v}</div>
                         </div>
-                        """, unsafe_allow_html=True)
-
-                        with st.expander(f"📊 Resumen Clave ({nombre_cruce})", expanded=False):
-                            eventos_texto = []
-                            for d in detalles_partido:
-                                min_ev = d.get("clock", {}).get("displayValue", "")
-                                tipo_ev = d.get("type", {}).get("text", "")
-                                jugadores = d.get("athletesInvolved", [])
-                                nom_jug = jugadores[0].get("displayName", "Jugador") if jugadores else ""
-                                if d.get("scoringPlay", False):
-                                    eventos_texto.append(f"⚽ **GOL ({min_ev})**: {nom_jug} ({tipo_ev})")
-                                elif d.get("redCard", False):
-                                    eventos_texto.append(f"🟥 **ROJA ({min_ev})**: {nom_jug}")
-                                elif d.get("yellowCard", False):
-                                    eventos_texto.append(f"🟨 **Amarilla ({min_ev})**: {nom_jug}")
-
-                            if eventos_texto:
-                                for ev_linea in eventos_texto:
-                                    st.markdown(f"- {ev_linea}")
-                            else:
-                                st.caption("Sin goles ni tarjetas registradas en este encuentro.")
-
-                            pos_l = extraer_stat_espn(loc, ["possessionPct"])
-                            pos_v = extraer_stat_espn(vis, ["possessionPct"])
-                            esquinas_l = extraer_stat_espn(loc, ["wonCorners", "corners"])
-                            esquinas_v = extraer_stat_espn(vis, ["wonCorners", "corners"])
-
-                            df_resumen = pd.DataFrame([
-                                {"Dato": "Posesión", nom_l: f"{pos_l}%" if "%" not in pos_l else pos_l, nom_v: f"{pos_v}%" if "%" not in pos_v else pos_v},
-                                {"Dato": "Córneres", nom_l: esquinas_l, nom_v: esquinas_v},
-                            ])
-                            st.table(df_resumen)
-
-                    with col_bell:
-                        if "seguidos_portada" not in st.session_state:
-                            st.session_state["seguidos_portada"] = []
-                        
-                        ya_seguido = ev_id in st.session_state["seguidos_portada"]
-                        activar_si = st.checkbox("🔔 Sí", value=ya_seguido, key=f"portada_bell_{ev_id}")
-                        
-                        if activar_si and not ya_seguido:
-                            st.session_state["seguidos_portada"].append(ev_id)
-                            st.session_state["memoria_eventos"][ev_id] = {
-                                "state": st_state,
-                                "ht_notificado": ("Halftime" in desc_estado or "HT" in comp.get("status", {}).get("type", {}).get("shortDetail", "")),
-                                "goles_l": gol_l,
-                                "goles_v": gol_v,
-                                "rojas": rojas_actuales
-                            }
-                            disparar_alerta_celular(f"Seguimiento: {nombre_cruce}", "Avisos activos.", "✅")
-                        elif not activar_si and ya_seguido:
-                            st.session_state["seguidos_portada"].remove(ev_id)
-
-                        if activar_si and ev_id in st.session_state["memoria_eventos"]:
-                            mem = st.session_state["memoria_eventos"][ev_id]
-                            if mem["state"] == "pre" and st_state == "in":
-                                disparar_alerta_celular(f"⏳ ¡EMPEZÓ EL PARTIDO!", f"{nombre_cruce} (0-0)", "🟢")
-                            
-                            es_ht = ("Halftime" in desc_estado or "HT" in comp.get("status", {}).get("type", {}).get("shortDetail", "") or "Medio" in desc_estado)
-                            if es_ht and not mem["ht_notificado"]:
-                                disparar_alerta_celular(f"⏸️ MEDIO TIEMPO", f"{nombre_cruce} | {gol_l}-{gol_v}", "⏱️")
-                                mem["ht_notificado"] = True
-
-                            if (gol_l + gol_v) > (mem["goles_l"] + mem["goles_v"]):
-                                disparar_alerta_celular(f"⚽ ¡GOL EN {nombre_cruce}!", f"Marcador: {gol_l}-{gol_v}", "⚽")
-                            elif (gol_l + gol_v) < (mem["goles_l"] + mem["goles_v"]):
-                                disparar_alerta_celular(f"❌ ¡GOL ANULADO (VAR)!", f"{nombre_cruce}: {gol_l}-{gol_v}", "🚫")
-
-                            if rojas_actuales > mem["rojas"]:
-                                disparar_alerta_celular(f"🟥 ¡TARJETA ROJA!", f"{nombre_cruce}", "🟥")
-
-                            if mem["state"] != "post" and st_state == "post":
-                                disparar_alerta_celular(f"🏁 FINAL DEL PARTIDO", f"{nombre_cruce} terminó {gol_l}-{gol_v}", "🏁")
-
-                            st.session_state["memoria_eventos"][ev_id].update({
-                                "state": st_state,
-                                "goles_l": gol_l,
-                                "goles_v": gol_v,
-                                "rojas": rojas_actuales
-                            })
-
-    if st.session_state["historial_notificaciones"]:
-        with st.expander("📲 Bandeja de Notificaciones", expanded=False):
-            for notif in st.session_state["historial_notificaciones"][:6]:
-                st.info(notif)
+                    </div>
+                    """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# SECCIÓN 2: PARTIDOS EN VIVO (CON TIROS TOTALES, AL ARCO Y OCASIONES CLARAS)
+# SECCIÓN 2: PARTIDOS EN VIVO
 # -----------------------------------------------------------------------------
 with sec_en_vivo:
     st.subheader("🔴 Partidos en Juego en Tiempo Real")
-    st.markdown("⚠️ *Visualización detallada con métricas completas de disparos, remates al arco y ocasiones claras.*")
-    
-    activar_vivo_auto = st.checkbox("🔄 Actualizar en vivo cada 2 minutos", value=True, key="live_auto_chk")
-
     codigos_todas = [l["espn"] for l in LIGAS_BIG_DATA]
-    datos_vivo = obtener_partidos_ligas(codigos_todas)
+    datos_vivo = obtener_partidos_rapido(codigos_todas)
     hay_en_vivo = False
 
     for nombre_liga, contenido in datos_vivo.items():
-        eventos = contenido["eventos"]
-        eventos_en_vivo = []
-
-        for ev in eventos:
+        for ev in contenido["eventos"]:
             comp = ev.get("competitions", [{}])[0]
             st_state = comp.get("status", {}).get("type", {}).get("state", "pre")
-            short_detail = comp.get("status", {}).get("type", {}).get("shortDetail", "")
+            short_det = comp.get("status", {}).get("type", {}).get("shortDetail", "")
             
-            if st_state == "in" or "HT" in short_detail or "Medio" in short_detail:
-                eventos_en_vivo.append(ev)
+            if st_state == "in" or "HT" in short_det or "Medio" in short_det:
+                hay_en_vivo = True
+                competitors = comp.get("competitors", [])
+                if len(competitors) == 2:
+                    nom_l = competitors[0].get("team", {}).get("shortDisplayName", "Local")
+                    nom_v = competitors[1].get("team", {}).get("shortDisplayName", "Visita")
+                    gol_l = int(competitors[0].get("score", 0) or 0)
+                    gol_v = int(competitors[1].get("score", 0) or 0)
+                    
+                    toth_l = int(extraer_stat_espn(competitors[0], ["shots", "totalShots"]) or 0)
+                    toth_v = int(extraer_stat_espn(competitors[1], ["shots", "totalShots"]) or 0)
+                    tmeta_l = int(extraer_stat_espn(competitors[0], ["shotsOnTarget"]) or 0)
+                    tmeta_v = int(extraer_stat_espn(competitors[1], ["shotsOnTarget"]) or 0)
 
-        if not eventos_en_vivo:
-            continue
-
-        hay_en_vivo = True
-        st.markdown(f"<div class='liga-header'>{nombre_liga}</div>", unsafe_allow_html=True)
-
-        for ev in eventos_en_vivo:
-            comp = ev.get("competitions", [{}])[0]
-            reloj = comp.get("status", {}).get("displayClock", "En Juego")
-            short_detail = comp.get("status", {}).get("type", {}).get("shortDetail", "")
-            competitors = comp.get("competitors", [])
-
-            if len(competitors) == 2:
-                loc = competitors[0]
-                vis = competitors[1]
-
-                nom_l = loc.get("team", {}).get("shortDisplayName", loc.get("team", {}).get("displayName", "Local"))
-                nom_v = vis.get("team", {}).get("shortDisplayName", vis.get("team", {}).get("displayName", "Visita"))
-                logo_l = loc.get("team", {}).get("logo", "https://a.espncdn.com/i/teamlogos/soccer/500/default-team-logo-500.png")
-                logo_v = vis.get("team", {}).get("logo", "https://a.espncdn.com/i/teamlogos/soccer/500/default-team-logo-500.png")
-                gol_l = int(loc.get("score", 0) or 0)
-                gol_v = int(vis.get("score", 0) or 0)
-                nombre_cruce = f"{nom_l} vs {nom_v}"
-
-                # EXTRACCIÓN AVANZADA DE MÉTRICAS OFENSIVAS
-                toth_l = int(extraer_stat_espn(loc, ["shots", "totalShots"]) or 0)
-                toth_v = int(extraer_stat_espn(vis, ["shots", "totalShots"]) or 0)
-                
-                tmeta_l = int(extraer_stat_espn(loc, ["shotsOnTarget"]) or 0)
-                tmeta_v = int(extraer_stat_espn(vis, ["shotsOnTarget"]) or 0)
-
-                # Ocasiones claras simuladas/extraídas si la API las provee, sino ponderadas por volumen
-                ocasion_l = int(extraer_stat_espn(loc, ["bigChancesMissed", "shotsInsideBox"]) or int(tmeta_l * 0.8))
-                ocasion_v = int(extraer_stat_espn(vis, ["bigChancesMissed", "shotsInsideBox"]) or int(tmeta_v * 0.8))
-                
-                pos_l = extraer_stat_espn(loc, ["possessionPct"])
-                pos_v = extraer_stat_espn(vis, ["possessionPct"])
-                esquinas_l = extraer_stat_espn(loc, ["wonCorners", "corners"])
-                esquinas_v = extraer_stat_espn(vis, ["wonCorners", "corners"])
-
-                badge_vivo = f"<div class='status-live'>🔴 {reloj}</div>" if "HT" not in short_detail else "<div class='status-live'>⏸️ HT</div>"
-
-                st.markdown(f"""
-                <div class="match-card">
-                    {badge_vivo}
-                    <div class="teams-container">
-                        <div class="team-home">{nom_l}</div>
-                        <img src="{logo_l}" class="team-logo">
-                        <div class="score-box">{gol_l} - {gol_v}</div>
-                        <img src="{logo_v}" class="team-logo">
-                        <div class="team-away">{nom_v}</div>
+                    st.markdown(f"""
+                    <div class="match-card">
+                        <div class='status-live'>🔴 En Juego</div>
+                        <div class="teams-container">
+                            <div class="team-home">{nom_l}</div>
+                            <div class="score-box">{gol_l} - {gol_v}</div>
+                            <div class="team-away">{nom_v}</div>
+                        </div>
                     </div>
-                </div>
-                """, unsafe_allow_html=True)
-
-                with st.expander(f"📊 Estadísticas del Encuentro ({nombre_cruce})", expanded=True):
-                    col_stat1, col_stat2, col_stat3 = st.columns(3)
-                    with col_stat1:
-                        st.metric("🎯 Tiros Totales", f"{toth_l} - {toth_v}", f"Al arco: {tmeta_l}-{tmeta_v} | Claras: {ocasion_l}-{ocasion_v}")
-                    with col_stat2:
-                        st.metric("⏱️ Posesión", f"{pos_l}% - {pos_v}%")
-                    with col_stat3:
-                        st.metric("🚩 Córneres", f"{esquinas_l} - {esquinas_v}")
-
-                    detalles_partido = comp.get("details", [])
-                    eventos_texto = []
-                    for d in detalles_partido:
-                        min_ev = d.get("clock", {}).get("displayValue", "")
-                        tipo_ev = d.get("type", {}).get("text", "")
-                        jugadores = d.get("athletesInvolved", [])
-                        nom_jug = jugadores[0].get("displayName", "Jugador") if jugadores else ""
-                        if d.get("scoringPlay", False):
-                            eventos_texto.append(f"⚽ **GOL ({min_ev})**: {nom_jug} ({tipo_ev})")
-                        elif d.get("redCard", False):
-                            eventos_texto.append(f"🟥 **ROJA ({min_ev})**: {nom_jug}")
-                        elif d.get("yellowCard", False):
-                            eventos_texto.append(f"🟨 **Amarilla ({min_ev})**: {nom_jug}")
-
-                    if eventos_texto:
-                        st.markdown("**Incidentes:**")
-                        for ev_linea in eventos_texto:
-                            st.markdown(f"- {ev_linea}")
+                    """, unsafe_allow_html=True)
+                    st.caption(f"📊 **{nom_l} vs {nom_v}** | Tiros Totales: {toth_l + toth_v} | Al Arco: {tmeta_l + tmeta_v}")
 
     if not hay_en_vivo:
-        st.info("No hay ningún partido en juego o en medio tiempo en este momento en las 19 ligas monitoreadas.")
-
-    if activar_vivo_auto:
-        time.sleep(120)
-        st.rerun()
+        st.info("No hay partidos en juego en este momento.")
 
 # -----------------------------------------------------------------------------
-# SECCIÓN 3: PRE-APUESTAS OVER 1.5
+# SECCIÓN 3: PRE-APUESTAS (FILTRO FLEXIBLE CON MEJORES CUOTAS)
 # -----------------------------------------------------------------------------
 with sec_apuestas:
-    st.subheader("🎯 Pre-Apuesta Over 1.5 (Big Data)")
-    opciones_ligas_pre = [l["id"] for l in LIGAS_BIG_DATA]
-    ligas_seleccionadas_pre = st.multiselect("Ligas a auditar:", options=opciones_ligas_pre, default=opciones_ligas_pre, key="pre_ligas_sel")
+    st.subheader("🎯 Laboratorio de Pre-Apuestas Over 1.5 (Filtro Optimizado)")
+    if st.button("🚀 GENERAR REPORTE FLEXIBLE"):
+        codigos_pre = [l["espn"] for l in LIGAS_BIG_DATA]
+        datos_pre = obtener_partidos_rapido(codigos_pre)
+        reporte = []
 
-    if st.button("🚀 GENERAR REPORTE PRE-APUESTA", key="btn_pre"):
-        codigos_pre = [l["espn"] for l in LIGAS_BIG_DATA if l["id"] in ligas_seleccionadas_pre]
-        with st.spinner("Analizando..."):
-            datos_pre = obtener_partidos_ligas(codigos_pre)
-            reporte_pre = []
-
-            for nombre_liga, contenido in datos_pre.items():
-                for evento in contenido["eventos"]:
-                    comp = evento.get("competitions", [{}])[0]
-                    st_state = comp.get("status", {}).get("type", {}).get("state", "pre")
-                    if st_state != "pre":
-                        continue
-
-                    competitors = comp.get("competitors", [])
-                    if len(competitors) == 2:
-                        nom_local = competitors[0].get("team", {}).get("displayName", "Local")
-                        nom_visita = competitors[1].get("team", {}).get("displayName", "Visita")
-                        fecha_str = formatear_fecha_local(evento.get("date", ""))
-
-                        sot_l, xgs_l, tag_l, col_l, cer_l = auditar_equipo_bd(nom_local)
-                        sot_v, xgs_v, tag_v, col_v, cer_v = auditar_equipo_bd(nom_visita)
-                        xg_base = round((sot_l * xgs_l * 1.2) + (sot_v * xgs_v), 2)
-                        
-                        if cer_l or cer_v:
-                            xg_base = max(1.35, xg_base - 0.55)
-
-                        prob_poisson = (1 - poisson.cdf(1, xg_base)) * 100
-                        prob_final = round(min(98.5, max(45.0, prob_poisson)), 1)
-                        cuota_justa = round(100 / prob_final, 2)
-                        veredicto = "🟢 METER FICHA" if prob_final >= 78 else "⚪ DESCARTAR"
-
-                        reporte_pre.append({
-                            "Fecha": fecha_str,
+        for nombre_liga, contenido in datos_pre.items():
+            for evento in contenido["eventos"]:
+                comp = evento.get("competitions", [{}])[0]
+                if comp.get("status", {}).get("type", {}).get("state", "pre") != "pre":
+                    continue
+                competitors = comp.get("competitors", [])
+                if len(competitors) == 2:
+                    nom_l = competitors[0].get("team", {}).get("displayName", "Local")
+                    nom_v = competitors[1].get("team", {}).get("displayName", "Visita")
+                    
+                    sot_l, xgs_l, _ = auditar_equipo_bd(nom_l)
+                    sot_v, xgs_v, _ = auditar_equipo_bd(nom_v)
+                    xg_base = round((sot_l * xgs_l * 1.1) + (sot_v * xgs_v), 2)
+                    
+                    prob = round((1 - poisson.cdf(1, xg_base)) * 100, 1)
+                    # Filtro flexible optimizado: desde 65% para encontrar cuotas más rentables y atractivas
+                    if prob >= 65.0:
+                        cuota = round(100 / prob, 2)
+                        reporte.append({
                             "Liga": nombre_liga,
-                            "Partido": f"{nom_local} vs {nom_visita}",
-                            "Prob. Over 1.5": f"{prob_final}%",
-                            "Cuota": cuota_justa,
-                            "Veredicto": veredicto
+                            "Partido": f"{nom_l} vs {nom_v}",
+                            "Probabilidad Over 1.5": f"{prob}%",
+                            "Cuota Estimada": cuota,
+                            "Veredicto": "🔥 BUENA CUOTA" if cuota <= 1.55 else "🟢 ENTRAR"
                         })
 
-            if reporte_pre:
-                st.dataframe(pd.DataFrame(reporte_pre), use_container_width=True, hide_index=True)
-            else:
-                st.info("Sin partidos pendientes.")
+        if reporte:
+            st.dataframe(pd.DataFrame(reporte), use_container_width=True, hide_index=True)
+        else:
+            st.info("Sin partidos bajo el nuevo rango flexible.")
 
 # -----------------------------------------------------------------------------
-# SECCIÓN 4: SCRAPING Y ALERTAS EN VIVO
+# SECCIÓN 4: SCRAPING Y ALERTAS (FLEXIBLE)
 # -----------------------------------------------------------------------------
 with sec_scraping:
-    st.subheader("🚨 Motor de Scraping y Alertas (Minuto 18+)")
-    st.markdown("⚠️ *Monitoreo automático con alertas sonoras evaluando Disparos Totales, Tiros al Arco y Ocasiones Claras.*")
-    activar_scraping_2min = st.checkbox("🔄 Actualizar motor cada 2 minutos", value=True, key="scraping_auto_chk")
-
+    st.subheader("🚨 Motor de Scraping (Umbral Flexible)")
     codigos_todas = [l["espn"] for l in LIGAS_BIG_DATA]
-    datos_live_todas = obtener_partidos_ligas(codigos_todas)
-    tabla_scraping = []
+    datos_scrap = obtener_partidos_rapido(codigos_todas)
+    tabla = []
 
-    for nombre_liga, contenido in datos_live_todas.items():
+    for nombre_liga, contenido in datos_scrap.items():
         for evento in contenido["eventos"]:
             comp = evento.get("competitions", [{}])[0]
-            status_type = comp.get("status", {}).get("type", {}).get("state", "pre")
-            
-            if status_type != "in":
+            if comp.get("status", {}).get("type", {}).get("state", "pre") != "in":
                 continue
-
             reloj = comp.get("status", {}).get("displayClock", "0'")
             competitors = comp.get("competitors", [])
             if len(competitors) == 2:
-                local = competitors[0]
-                visita = competitors[1]
-                nom_l = local.get("team", {}).get("shortDisplayName", "Local")
-                nom_v = visita.get("team", {}).get("shortDisplayName", "Visita")
-                goles_l = int(local.get("score", 0) or 0)
-                goles_v = int(visita.get("score", 0) or 0)
-                goles_tot = goles_l + goles_v
+                goles = int(competitors[0].get("score", 0) or 0) + int(competitors[1].get("score", 0) or 0)
+                toth = int(extraer_stat_espn(competitors[0], ["shots"]) or 0) + int(extraer_stat_espn(competitors[1], ["shots"]) or 0)
                 
-                toth_total = int(extraer_stat_espn(local, ["shots", "totalShots"]) or 0) + int(extraer_stat_espn(visita, ["shots", "totalShots"]) or 0)
-                tmeta_total = int(extraer_stat_espn(local, ["shotsOnTarget"]) or 0) + int(extraer_stat_espn(visita, ["shotsOnTarget"]) or 0)
-
-                min_num = 0
                 try:
-                    min_num = int(reloj.replace("'", "").split("+")[0])
+                    minuto = int(reloj.replace("'", "").split("+")[0])
                 except:
-                    min_num = 0
+                    minuto = 0
 
-                veredicto_vivo = "⏳ Esperando Minuto 18+"
-                if min_num >= 18:
-                    if goles_tot == 0:
-                        if toth_total >= 6 or tmeta_total >= 3:
-                            veredicto_vivo = "🚨 ¡ENTRAR AL OVER 0.5 GOLES (Alto Asedio / Remates)!"
-                            disparar_alerta_celular(f"MERCADO 0.5 ({nom_l} vs {nom_v})", f"Min {reloj} (0-0) | Totales: {toth_total}, Al arco: {tmeta_total} -> ¡Entrar Over 0.5!", "🚨")
-                        else:
-                            veredicto_vivo = "⚪ Esperando mayor volumen de disparos"
-                    elif goles_tot == 1:
-                        if (toth_total >= 8 or tmeta_total >= 4) and min_num <= 78:
-                            veredicto_vivo = "🔥 ¡ENTRAR AL OVER 1.5 GOLES (Partido Roto)!"
-                            disparar_alerta_celular(f"MERCADO 1.5 ({nom_l} vs {nom_v})", f"Min {reloj} ({goles_l}-{goles_v}) | Totales: {toth_total}, Al arco: {tmeta_total} -> ¡Entrar Over 1.5!", "🔥")
-                        else:
-                            veredicto_vivo = "🟢 Partido con 1 gol (Monitoreando ritmo)"
-                    else:
-                        veredicto_vivo = "✅ ¡Over cumplido con éxito!"
+                veredicto = "Esperando..."
+                if minuto >= 15:
+                    if goles == 0 and toth >= 4:
+                        veredicto = "🚨 ¡ENTRAR OVER 0.5!"
+                        disparar_alerta_celular("ALERTA VIVA", f"Disparos: {toth} -> Entrar Over 0.5", "🚨")
+                    elif goles == 1 and toth >= 6:
+                        veredicto = "🔥 ¡ENTRAR OVER 1.5!"
+                        disparar_alerta_celular("ALERTA VIVA", f"Disparos: {toth} -> Entrar Over 1.5", "🔥")
 
-                tabla_scraping.append({
-                    "Reloj": f"🔴 {reloj}",
-                    "Liga": nombre_liga,
-                    "Partido": f"{nom_l} vs {nom_v}",
-                    "Marcador": f"{goles_l} - {goles_v}",
-                    "🎯 Disparos (Tot / Arco)": f"{toth_total} / {tmeta_total}",
-                    "💡 Recomendación": veredicto_vivo
+                tabla.append({
+                    "Reloj": reloj,
+                    "Partido": f"{competitors[0].get('team', {}).get('shortDisplayName')} vs {competitors[1].get('team', {}).get('shortDisplayName')}",
+                    "Goles": goles,
+                    "Disparos Totales": toth,
+                    "Señal": veredicto
                 })
 
-    if tabla_scraping:
-        st.dataframe(pd.DataFrame(tabla_scraping), use_container_width=True, hide_index=True)
+    if tabla:
+        st.dataframe(pd.DataFrame(tabla), use_container_width=True, hide_index=True)
     else:
-        st.info("No hay partidos activos para scraping en este momento.")
-
-    if activar_scraping_2min:
-        time.sleep(120)
-        st.rerun()
+        st.info("Sin partidos activos para el motor de scraping en este momento.")
