@@ -62,7 +62,17 @@ st.markdown("""
 }
 .status-badge {
     background-color: #1f222d;
-    color: #9ba1b0;
+    color: #00ffcc;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: bold;
+    min-width: 72px;
+    text-align: center;
+}
+.status-final {
+    background-color: #16181f;
+    color: #6c727f;
     padding: 2px 6px;
     border-radius: 4px;
     font-size: 11px;
@@ -203,7 +213,7 @@ LIGAS_BIG_DATA = [
     {"id": "🇩🇪 2. Bundesliga (ALE2)", "code": "ger.2", "efec": 84.0},
     {"id": "🇦🇹 Bundesliga (AUT1)", "code": "aut.1", "efec": 84.0},
     {"id": "🇧🇪 Jupiler Pro League (BEL1)", "code": "bel.1", "efec": 83.0},
-    {"id": "🏴󠁧󠁢󠁳󠁣󠁴󠁿 Premiership (ESC1)", "code": "sco.1", "efec": 83.0},
+    {"id": "🏴󠁧󠁢󠁳󠁣󠁴󠁿 Premiership (ESC1)", "code": "sco.1", "efec": "83.0"},
     {"id": "🇹🇷 Süper Lig (TUR1)", "code": "tur.1", "efec": 82.0},
     {"id": "🇵🇹 Primeira Liga (POR1)", "code": "por.1", "efec": 81.0},
     {"id": "🇺🇸 MLS (USA1)", "code": "usa.1", "efec": 84.0},
@@ -256,14 +266,19 @@ DEFENSAS_COLADOR = [
 BLOQUES_CERROJO = ["Getafe", "Mallorca", "Empoli", "Everton"]
 
 def obtener_fecha_local_evento(iso_fecha):
-    """Convierte la fecha ISO UTC de ESPN a la fecha exacta en UTC-6 (Honduras)"""
+    """
+    Parseo quirúrgico de la fecha ISO de ESPN (ej. '2026-10-20T19:00Z')
+    para que NUNCA falle la conversión a UTC-6 y descarte al 100% los partidos de ayer.
+    """
+    if not iso_fecha:
+        return "1970-01-01", "Programado", "--:--", datetime(1970, 1, 1)
     try:
-        dt_utc = datetime.fromisoformat(iso_fecha.replace("Z", "+00:00"))
+        limpio = iso_fecha.strip()[:16]  # Toma exactamente 'YYYY-MM-DDTHH:MM'
+        dt_utc = datetime.strptime(limpio, "%Y-%m-%dT%H:%M")
         dt_local = dt_utc - timedelta(hours=6)
-        return dt_local.strftime("%Y-%m-%d"), dt_local.strftime("%d/%m %H:%M"), dt_local.strftime("%H:%M")
+        return dt_local.strftime("%Y-%m-%d"), dt_local.strftime("%d/%m %H:%M"), dt_local.strftime("%H:%M"), dt_local
     except:
-        hoy_fallback = (datetime.utcnow() - timedelta(hours=6)).strftime("%Y-%m-%d")
-        return hoy_fallback, "Programado", "--:--"
+        return "1970-01-01", "Programado", "--:--", datetime(1970, 1, 1)
 
 def _fetch_standings(code):
     url = f"https://site.api.espn.com/apis/v2/sports/soccer/{code}/standings"
@@ -290,7 +305,7 @@ def _fetch_standings(code):
                 gc = float(stats_dict.get("pointsAgainst", 0) or 0)
                 if pj > 0:
                     goles_liga_tot += gf
-                    partidos_liga_tot += (pj / 2.0)  # Cada partido suma para 2 equipos
+                    partidos_liga_tot += (pj / 2.0)
                     info = {"pj": int(pj), "gf_prom": round(gf / pj, 2), "gc_prom": round(gc / pj, 2)}
                     if t_name:
                         equipos_stats[t_name.lower()] = info
@@ -299,7 +314,6 @@ def _fetch_standings(code):
     except:
         pass
     
-    # Cálculo de eficiencia real de Over 1.5 en la liga según los goles de la temporada actual
     eficiencia_real_liga = None
     if partidos_liga_tot > 5:
         media_goles_liga = goles_liga_tot / partidos_liga_tot
@@ -373,20 +387,13 @@ def calcular_pre_poisson_real(nom_local, nom_visita, stats_temporada):
     return prob_final, cuota_justa, xg_base, fuente_tag
 
 def calcular_tasa_gol_segundo_tiempo(xg_total_pre, disparos_totales, tiros_arco, min_actual):
-    """
-    Calcula la probabilidad real de que caiga al menos 1 gol en el Segundo Tiempo (2T).
-    En el fútbol profesional el 57% de los goles caen en el 2T por fatiga defensiva.
-    Además bonifica el ritmo de disparos reales acumulados en cancha.
-    """
     xg_2t_base = xg_total_pre * 0.57
-    # Bono por presión ofensiva real en cancha (disparos y tiros al arco)
     bono_presion = (disparos_totales * 0.035) + (tiros_arco * 0.08)
     xg_2t_ajustado = xg_2t_base + bono_presion
 
-    # Si ya estamos avanzados en el 2do tiempo, ajustamos el potencial restante pero mantenemos el empuje de cierre
     if min_actual > 45:
         minutos_restantes_2t = max(8, 94 - min_actual)
-        factor_tiempo = (minutos_restantes_2t / 45.0) * 1.22  # 1.22 por asedio de últimos minutos
+        factor_tiempo = (minutos_restantes_2t / 45.0) * 1.22
         xg_2t_ajustado = xg_2t_ajustado * min(1.15, factor_tiempo)
 
     prob_gol_2t = (1 - poisson.cdf(0, xg_2t_ajustado)) * 100
@@ -449,7 +456,7 @@ def detectar_estado_partido(comp, iso_fecha):
     except:
         min_num = 45 if es_ht else 0
 
-    _, fecha_corta, hora_sola = obtener_fecha_local_evento(iso_fecha)
+    _, fecha_corta, hora_sola, _ = obtener_fecha_local_evento(iso_fecha)
 
     if es_ht:
         badge_html = "<div class='status-ht'>⏸️ ENTRETIEMPO</div>"
@@ -458,7 +465,7 @@ def detectar_estado_partido(comp, iso_fecha):
         badge_html = f"<div class='status-live'>🔴 {reloj}</div>"
         reloj_txt = f"🔴 {reloj}"
     elif st_state == "post":
-        badge_html = "<div class='status-badge'>FINAL</div>"
+        badge_html = "<div class='status-final'>FINAL</div>"
         reloj_txt = "FINAL"
     else:
         badge_html = f"<div class='status-badge'>🕒 {hora_sola}</div>"
@@ -480,7 +487,8 @@ def _fetch_url(args):
 @st.cache_data(ttl=20)
 def obtener_partidos_ligas(codigos_liga):
     hoy_hn = datetime.utcnow() - timedelta(hours=6)
-    fechas = [(hoy_hn + timedelta(days=i)).strftime("%Y%m%d") for i in (-1, 0, 1)]
+    # CERO PARTIDOS DE AYER: Solo consultamos Hoy (0) y Mañana (1)
+    fechas = [(hoy_hn + timedelta(days=i)).strftime("%Y%m%d") for i in (0, 1)]
     mapa_ligas = {l["code"]: l for l in LIGAS_BIG_DATA}
     datos_por_liga = {mapa_ligas[c]["id"]: {"meta": mapa_ligas[c], "eventos": []} for c in codigos_liga if c in mapa_ligas}
     ids_vistos = set()
@@ -503,43 +511,42 @@ def obtener_partidos_ligas(codigos_liga):
 hoy_hn_dt = datetime.utcnow() - timedelta(hours=6)
 str_hoy = hoy_hn_dt.strftime("%Y-%m-%d")
 str_manana = (hoy_hn_dt + timedelta(days=1)).strftime("%Y-%m-%d")
-str_ayer = (hoy_hn_dt - timedelta(days=1)).strftime("%Y-%m-%d")
 
 codigos_todas = [l["code"] for l in LIGAS_BIG_DATA]
 datos_globales = obtener_partidos_ligas(codigos_todas)
 stats_temporada_api, eficiencias_ligas_api = obtener_estadisticas_temporada_reales(codigos_todas)
 
 def obtener_eficiencia_dinamica_liga(meta_liga):
-    """Combina la eficiencia histórica con la tasa real de goles actual de la API"""
     code = meta_liga["code"]
     efec_base = float(meta_liga["efec"])
     if code in eficiencias_ligas_api:
-        efec_Viva = round((efec_base * 0.65) + (eficiencias_ligas_api[code] * 0.35), 1)
-        return f"{efec_Viva}% (API Activa)"
+        efec_viva = round((efec_base * 0.65) + (eficiencias_ligas_api[code] * 0.35), 1)
+        return f"{efec_viva}% (API Activa)"
     return f"{efec_base}%"
 
 sec_resultados, sec_en_vivo, sec_apuestas, sec_scraping = st.tabs([
-    "⚽ 1. RESULTADOS", 
+    "⚽ 1. CARTELERA DE HOY", 
     "🔴 2. PARTIDOS EN VIVO", 
     "🎯 3. PRE-APUESTAS", 
     "🚨 4. SCRAPING Y ALERTAS"
 ])
 
 # -----------------------------------------------------------------------------
-# SECCIÓN 1: RESULTADOS GENERALES Y CAMPANITA DE SEGUIMIENTO (FILTRADO POR HOY)
+# SECCIÓN 1: CARTELERA EXCLUSIVA DE HOY / MAÑANA (CERO PARTIDOS DE AYER)
 # -----------------------------------------------------------------------------
 with sec_resultados:
     col_menu, col_contenido = st.columns([1.2, 3.8])
 
     with col_menu:
-        st.markdown("##### 📅 Jornada Oficial")
+        st.markdown("##### 📅 Cartelera Activa")
         opciones_dia = {
             f"🟢 Hoy ({hoy_hn_dt.strftime('%d/%m')})": str_hoy,
             f"⏭️ Mañana ({(hoy_hn_dt + timedelta(days=1)).strftime('%d/%m')})": str_manana,
-            f"⏮️ Ayer ({(hoy_hn_dt - timedelta(days=1)).strftime('%d/%m')})": str_ayer
         }
         etiqueta_dia_sel = st.radio("Seleccionar Día:", list(opciones_dia.keys()), index=0, label_visibility="collapsed")
         fecha_objetivo_portada = opciones_dia[etiqueta_dia_sel]
+
+        ocultar_finalizados = st.toggle("👁️ Ocultar Finalizados", value=True, help="Esconde los partidos que ya terminaron para mostrar solo los que están En Vivo o Próximos a jugarse.")
 
         st.markdown("##### 📌 Ligas Disponibles")
         nombres_ligas = [l["id"] for l in LIGAS_BIG_DATA]
@@ -557,26 +564,32 @@ with sec_resultados:
 
             eventos_filtrados = []
             for ev in contenido["eventos"]:
-                fecha_ev_local, _, _ = obtener_fecha_local_evento(ev.get("date", ""))
+                fecha_ev_local, _, _, dt_local_obj = obtener_fecha_local_evento(ev.get("date", ""))
                 comp = ev.get("competitions", [{}])[0]
                 st_state_ev, es_ht_ev, _, _, _ = detectar_estado_partido(comp, ev.get("date", ""))
 
-                if fecha_objetivo_portada == str_hoy:
-                    if fecha_ev_local != str_hoy and not (st_state_ev == "in" or es_ht_ev):
-                        continue
-                else:
-                    if fecha_ev_local != fecha_objetivo_portada:
-                        continue
+                # BLOQUEO TOTAL A PARTIDOS DE AYER O DÍAS DISTINTOS AL SELECCIONADO
+                if fecha_ev_local != fecha_objetivo_portada:
+                    continue
+
+                # Si el apostador no quiere ver partidos ya terminados, los filtramos de inmediato
+                if ocultar_finalizados and st_state_ev == "post":
+                    continue
 
                 competitors = comp.get("competitors", [])
                 if len(competitors) == 2:
                     nom_l = competitors[0].get("team", {}).get("displayName", "")
                     nom_v = competitors[1].get("team", {}).get("displayName", "")
                     if not texto_busqueda or (texto_busqueda.lower() in nom_l.lower() or texto_busqueda.lower() in nom_v.lower()):
-                        eventos_filtrados.append(ev)
+                        # Prioridad de ordenamiento: 0 = En Vivo / HT, 1 = Próximos (Pre), 2 = Finalizados
+                        prioridad = 0 if (st_state_ev == "in" or es_ht_ev) else (1 if st_state_ev == "pre" else 2)
+                        eventos_filtrados.append((prioridad, dt_local_obj, ev))
 
             if not eventos_filtrados:
                 continue
+
+            # Ordenamos para que EN VIVO y PRÓXIMOS salgan siempre hasta arriba
+            eventos_filtrados.sort(key=lambda x: (x[0], x[1]))
 
             hay_partidos_jornada = True
             efec_txt = obtener_eficiencia_dinamica_liga(contenido["meta"])
@@ -585,7 +598,7 @@ with sec_resultados:
                 unsafe_allow_html=True
             )
 
-            for ev in eventos_filtrados:
+            for _, _, ev in eventos_filtrados:
                 ev_id = str(ev.get("id"))
                 comp = ev.get("competitions", [{}])[0]
                 competitors = comp.get("competitors", [])
@@ -692,7 +705,7 @@ with sec_resultados:
                         })
 
         if not hay_partidos_jornada:
-            st.info(f"No hay partidos registrados para la fecha seleccionada ({etiqueta_dia_sel}) con los filtros actuales.")
+            st.info(f"No hay partidos en vivo o programados para {etiqueta_dia_sel}. Si deseas ver los que ya terminaron hoy, desactiva el botón '👁️ Ocultar Finalizados'.")
 
     if st.session_state["historial_notificaciones"]:
         with st.expander("📲 Bandeja de Alertas Recientes", expanded=False):
@@ -806,7 +819,7 @@ with sec_apuestas:
         if nombre_liga not in ligas_seleccionadas_pre:
             continue
         for evento in contenido["eventos"]:
-            fecha_ev_local, fecha_legible, _ = obtener_fecha_local_evento(evento.get("date", ""))
+            fecha_ev_local, fecha_legible, _, _ = obtener_fecha_local_evento(evento.get("date", ""))
             if fecha_ev_local not in (str_hoy, str_manana):
                 continue
 
@@ -893,7 +906,6 @@ with sec_scraping:
                 veredicto_vivo = f"⏳ Calentando ({prob_pre}% Pre | Tasa Gol 2T: {tasa_gol_2t}%)"
                 if min_num >= 15 or es_ht:
                     if goles_tot == 0:
-                        # Condición solicitada: Un equipo ya lleva 3+ disparos o hay alto volumen ofensivo
                         if max_disp_equipo >= 3 or tmeta_tot >= 2 or toth_tot >= 5:
                             aviso_2t = (
                                 f"🔥 ¡SIN MIEDO AL 0-0! Ambos rivales registran **{tasa_gol_2t}% de Tasa de Gol en el 2do Tiempo**"
