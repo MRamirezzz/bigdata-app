@@ -122,7 +122,7 @@ st.markdown("<div class='subtitulo-autor'>Miguel Ramirez &nbsp;|&nbsp; ✉️ an
 # Barra de control general de alertas (Interruptor Maestro)
 col_master1, col_master2 = st.columns([3, 1])
 with col_master1:
-    st.caption("💡 Central MRFUTBOL activa en tiempo real.")
+    st.caption("💡 Radar en tiempo real optimizado (Rango amplio sincronizado).")
 with col_master2:
     master_sound = st.toggle("🔔 Alertas Activas", value=True)
 
@@ -261,10 +261,11 @@ def formatear_fecha_local(iso_str):
     except:
         return "Programado"
 
-@st.cache_data(ttl=30)
-def obtener_partidos_ligas(codigos_espn, dias=4):
+@st.cache_data(ttl=15)
+def obtener_partidos_ligas(codigos_espn):
+    # Consultamos un rango amplio (ayer, hoy y mañana) para atrapar sin fallo los partidos en vivo sin desfases horarios
     hoy = datetime.now()
-    fechas = [(hoy + timedelta(days=i)).strftime("%Y%m%d") for i in range(dias)]
+    fechas = [(hoy + timedelta(days=i)).strftime("%Y%m%d") for i in range(-1, 3)]
     mapa_ligas = {l["espn"]: l for l in LIGAS_BIG_DATA}
     datos_por_liga = {mapa_ligas[c]["id"]: {"meta": mapa_ligas[c], "eventos": []} for c in codigos_espn if c in mapa_ligas}
     ids_vistos = set()
@@ -310,7 +311,7 @@ with sec_futbol:
 
     with col_contenido:
         codigos_portada = [l["espn"] for l in LIGAS_BIG_DATA]
-        datos_portada = obtener_partidos_ligas(codigos_portada, dias=4)
+        datos_portada = obtener_partidos_ligas(codigos_portada)
 
         for nombre_liga, contenido in datos_portada.items():
             if liga_seleccionada_panel != "🌍 Todas las 19 Ligas" and liga_seleccionada_panel != nombre_liga:
@@ -480,7 +481,7 @@ with sec_apuestas:
     if st.button("🚀 GENERAR REPORTE PRE-APUESTA"):
         codigos_pre = [l["espn"] for l in LIGAS_BIG_DATA if l["id"] in ligas_seleccionadas_pre]
         with st.spinner("Analizando..."):
-            datos_pre = obtener_partidos_ligas(codigos_pre, dias=4)
+            datos_pre = obtener_partidos_ligas(codigos_pre)
             reporte_pre = []
 
             for nombre_liga, contenido in datos_pre.items():
@@ -531,7 +532,7 @@ with sec_live:
     activar_scraping_2min = st.checkbox("🔄 Actualizar cada 2 minutos", value=True)
 
     codigos_todas = [l["espn"] for l in LIGAS_BIG_DATA]
-    datos_live_todas = obtener_partidos_ligas(codigos_todas, dias=1)
+    datos_live_todas = obtener_partidos_ligas(codigos_todas)
     tabla_scraping = []
 
     for nombre_liga, contenido in datos_live_todas.items():
