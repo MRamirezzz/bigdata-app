@@ -122,7 +122,7 @@ st.markdown("<div class='subtitulo-autor'>Miguel Ramirez &nbsp;|&nbsp; ✉️ an
 # Barra de control general de alertas (Interruptor Maestro)
 col_master1, col_master2 = st.columns([3, 1])
 with col_master1:
-    st.caption("💡 Scraping en vivo filtrado solo para partidos en curso.")
+    st.caption("💡 Central MRFUTBOL activa con alertas sonoras en tiempo real.")
 with col_master2:
     master_sound = st.toggle("🔔 Alertas Activas", value=True)
 
@@ -287,9 +287,6 @@ def obtener_partidos_ligas(codigos_espn):
                 pass
     return datos_por_liga
 
-# =============================================================================
-# ESTRUCTURA DE LAS 3 SECCIONES
-# =============================================================================
 sec_futbol, sec_apuestas, sec_live = st.tabs([
     "⚽ 1. RESULTADOS", 
     "🎯 2. PRE-APUESTAS", 
@@ -297,7 +294,7 @@ sec_futbol, sec_apuestas, sec_live = st.tabs([
 ])
 
 # -----------------------------------------------------------------------------
-# SECCIÓN 1: PORTADA COMPACTA + FILTRO LATERAL DE LIGAS + BUSCADOR
+# SECCIÓN 1: PORTADA COMPACTA
 # -----------------------------------------------------------------------------
 with sec_futbol:
     col_menu, col_contenido = st.columns([1.2, 3.8])
@@ -484,7 +481,6 @@ with sec_apuestas:
             reporte_pre = []
 
             for nombre_liga, contenido in datos_pre.items():
-                efec_liga = contenido["meta"]["efec"]
                 for evento in contenido["eventos"]:
                     comp = evento.get("competitions", [{}])[0]
                     st_state = comp.get("status", {}).get("type", {}).get("state", "pre")
@@ -524,11 +520,11 @@ with sec_apuestas:
                 st.info("Sin partidos pendientes.")
 
 # -----------------------------------------------------------------------------
-# SECCIÓN 3: SCRAPING EN VIVO (FILTRADO SOLO PARTIDOS EN JUEGO)
+# SECCIÓN 3: SCRAPING EN VIVO CON RECOMENDACIÓN EXPLÍCITA (0.5 o 1.5)
 # -----------------------------------------------------------------------------
 with sec_live:
     st.subheader("🚨 Scraping En Vivo (Minuto 18+)")
-    st.markdown("⚠️ *Muestra únicamente partidos **En Juego** (Min 18+). Salta alarma con Tiros a Meta >= 3 (0-0) o Tiros a Meta >= 4 (con 1 gol).*")
+    st.markdown("⚠️ *Muestra exclusivamente partidos **En Juego**. El veredicto calcula en tiempo real si debes entrar a **Over 0.5** o **Over 1.5** según los Tiros a Meta.*")
     activar_scraping_2min = st.checkbox("🔄 Actualizar cada 2 minutos", value=True)
 
     codigos_todas = [l["espn"] for l in LIGAS_BIG_DATA]
@@ -540,7 +536,7 @@ with sec_live:
             comp = evento.get("competitions", [{}])[0]
             status_type = comp.get("status", {}).get("type", {}).get("state", "pre")
             
-            # FILTRO ESTRICTO: Mostrar SOLAMENTE partidos que están En Juego (in)
+            # FILTRAR ÚNICAMENTE PARTIDOS EN CURSO
             if status_type != "in":
                 continue
 
@@ -565,16 +561,22 @@ with sec_live:
                 except:
                     min_num = 0
 
-                veredicto = "Esperando Min 18'"
+                veredicto_vivo = "⏳ Esperando Minuto 18+"
                 if min_num >= 18:
-                    if goles_tot == 0 and tmeta_total >= 3:
-                        veredicto = "🚨 ¡METER OVER 0.5 / 1.5!"
-                        disparar_alerta_celular(f"SCRAPING LIVE ({nom_l} vs {nom_v})", f"Min {reloj} (0-0) | Tiros a meta: {tmeta_total}", "🚨")
-                    elif goles_tot == 1 and min_num <= 78 and tmeta_total >= 4:
-                        veredicto = "🔥 ¡METER OVER 1.5 / 2.5!"
-                        disparar_alerta_celular(f"SCRAPING LIVE ({nom_l} vs {nom_v})", f"Min {reloj} ({goles_l}-{goles_v}) | Tiros a meta: {tmeta_total}", "🔥")
+                    if goles_tot == 0:
+                        if tmeta_total >= 3:
+                            veredicto_vivo = "🚨 ¡ENTRAR AL OVER 0.5 GOLES (Confirma Asedio)!"
+                            disparar_alerta_celular(f"MERCADO 0.5 ({nom_l} vs {nom_v})", f"Min {reloj} (0-0) | Tiros a meta: {tmeta_total} -> ¡Entrar Over 0.5!", "🚨")
+                        else:
+                            veredicto_vivo = "⚪ Esperando más volumen de Tiros a Meta (< 3)"
+                    elif goles_tot == 1:
+                        if tmeta_total >= 4 and min_num <= 78:
+                            veredicto_vivo = "🔥 ¡ENTRAR AL OVER 1.5 GOLES (Partido Roto)!"
+                            disparar_alerta_celular(f"MERCADO 1.5 ({nom_l} vs {nom_v})", f"Min {reloj} ({goles_l}-{goles_v}) | Tiros a meta: {tmeta_total} -> ¡Entrar Over 1.5!", "🔥")
+                        else:
+                            veredicto_vivo = "🟢 Partido con 1 gol (Monitoreando ritmo)"
                     else:
-                        veredicto = f"🟢 Activo (Tiros meta: {tmeta_total})"
+                        veredicto_vivo = "✅ ¡Over cumplido con éxito!"
 
                 tabla_scraping.append({
                     "Reloj": f"🔴 {reloj}",
@@ -582,7 +584,7 @@ with sec_live:
                     "Partido": f"{nom_l} vs {nom_v}",
                     "Marcador": f"{goles_l} - {goles_v}",
                     "🎯 Tiros a Meta": tmeta_total,
-                    "⚡ Veredicto": veredicto
+                    "💡 Veredicto y Recomendación": veredicto_vivo
                 })
 
     if tabla_scraping:
