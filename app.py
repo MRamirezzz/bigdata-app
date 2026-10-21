@@ -5,33 +5,14 @@ import requests
 import time
 from datetime import datetime, timedelta
 from scipy.stats import poisson
-import gspread
-from google.oauth2.service_account import Credentials
 
 # Configuración principal con la marca MRFUTBOL
 st.set_page_config(page_title="MRFUTBOL - Miguel Ramirez", page_icon="⚽", layout="wide")
 
-# CONEXIÓN AUTOMÁTICA CON GOOGLE SHEETS (MRFUTBOL_DB)
-@st.cache_resource
-def conectar_google_sheets():
-    try:
-        # Carga credenciales desde los secrets de Streamlit si están configuradas
-        if "gcp_service_account" in st.secrets:
-            scopes = [
-                "https://www.googleapis.com/auth/spreadsheets",
-                "https://www.googleapis.com/auth/drive"
-            ]
-            creds = Credentials.from_service_account_info(
-                dict(st.secrets["gcp_service_account"]), scopes=scopes
-            )
-            client = gspread.authorize(creds)
-            return client.open("MRFUTBOL_DB")
-    except Exception as e:
-        pass
-    return None
-
-db_sheet = conectar_google_sheets()
-
+if "seguidos_portada" not in st.session_state:
+    st.session_state["seguidos_portada"] = []
+if "memoria_eventos" not in st.session_state:
+    st.session_state["memoria_eventos"] = {}
 if "historial_notificaciones" not in st.session_state:
     st.session_state["historial_notificaciones"] = []
 
@@ -141,8 +122,7 @@ st.markdown("<div class='subtitulo-autor'>Miguel Ramirez &nbsp;|&nbsp; ✉️ an
 # Barra de control general de alertas (Interruptor Maestro)
 col_master1, col_master2 = st.columns([3, 1])
 with col_master1:
-    estado_db = "🟢 Conectado a Google Sheets (MRFUTBOL_DB)" if db_sheet else "🟡 Modo Local / Esperando Credenciales Google"
-    st.caption(f"💡 {estado_db}")
+    st.caption("💡 Central MRFUTBOL activa en tiempo real.")
 with col_master2:
     master_sound = st.toggle("🔔 Alertas Activas", value=True)
 
@@ -151,17 +131,7 @@ def disparar_alerta_celular(titulo, mensaje, icono="🔔"):
         return
     st.toast(f"**{titulo}**\n\n{mensaje}", icon=icono)
     hora_actual = (datetime.utcnow() - timedelta(hours=6)).strftime("%H:%M:%S")
-    log_msg = f"[{hora_actual}] {icono} **{titulo}**: {mensaje}"
-    st.session_state["historial_notificaciones"].insert(0, log_msg)
-    
-    # Si Google Sheets está conectado, guardamos el registro automáticamente en la pestaña 'Historial'
-    if db_sheet:
-        try:
-            hoja_hist = db_sheet.worksheet("Historial")
-            hoja_hist.append_row([hora_actual, titulo, mensaje])
-        except:
-            pass
-
+    st.session_state["historial_notificaciones"].insert(0, f"[{hora_actual}] {icono} **{titulo}**: {mensaje}")
     components.html("""
     <script>
     try {
@@ -291,7 +261,7 @@ def formatear_fecha_local(iso_str):
     except:
         return "Programado"
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=30)
 def obtener_partidos_ligas(codigos_espn, dias=4):
     hoy = datetime.now()
     fechas = [(hoy + timedelta(days=i)).strftime("%Y%m%d") for i in range(dias)]
@@ -336,7 +306,7 @@ with sec_futbol:
         st.markdown("##### 📌 Ligas Disponibles")
         nombres_ligas = [l["id"] for l in LIGAS_BIG_DATA]
         liga_seleccionada_panel = st.selectbox("Filtrar Liga:", ["🌍 Todas las 19 Ligas"] + nombres_ligas, label_visibility="collapsed")
-        texto_busqueda = st.text_input("🔍 Buscar Equipo...", "", placeholder="Ej. Real Madrid, PSV...")
+        texto_busqueda = st.text_input("🔍 Buscar Equipo...", "", placeholder="Ej. Real Madrid, Guadalajara...")
 
     with col_contenido:
         codigos_portada = [l["espn"] for l in LIGAS_BIG_DATA]
@@ -462,22 +432,14 @@ with sec_futbol:
                                 "goles_v": gol_v,
                                 "rojas": rojas_actuales
                             }
-                            # Guardado en Google Sheets pestaña Seguidos
-                            if db_sheet:
-                                try:
-                                    hoja_seg = db_sheet.worksheet("Seguidos")
-                                    hoja_seg.append_row([str(ev_id), nombre_cruce, datetime.now().strftime("%Y-%m-%d %H:%M")])
-                                except:
-                                    pass
-
-                            disparar_alerta_celular(f"Seguimiento: {nombre_cruce}", "Avisos activos y guardados en nube.", "✅")
+                            disparar_alerta_celular(f"Seguimiento: {nombre_cruce}", "Avisos activos.", "✅")
                         elif not activar_si and ya_seguido:
                             st.session_state["seguidos_portada"].remove(ev_id)
 
                         if activar_si and ev_id in st.session_state["memoria_eventos"]:
                             mem = st.session_state["memoria_eventos"][ev_id]
                             if mem["state"] == "pre" and st_state == "in":
-                                disparar_alerta_celular(f"⏳ ¡EMPEZÓ!", f"{nombre_cruce} (0-0)", "🟢")
+                                disparar_alerta_celular(f"⏳ ¡EMPEZÓ EL PARTIDO!", f"{nombre_cruce} (0-0)", "🟢")
                             
                             es_ht = ("Halftime" in desc_estado or "HT" in comp.get("status", {}).get("type", {}).get("shortDetail", "") or "Medio" in desc_estado)
                             if es_ht and not mem["ht_notificado"]:
@@ -485,15 +447,15 @@ with sec_futbol:
                                 mem["ht_notificado"] = True
 
                             if (gol_l + gol_v) > (mem["goles_l"] + mem["goles_v"]):
-                                disparar_alerta_celular(f"⚽ ¡GOL!", f"{nombre_cruce}: {gol_l}-{gol_v}", "⚽")
+                                disparar_alerta_celular(f"⚽ ¡GOL EN {nombre_cruce}!", f"Marcador: {gol_l}-{gol_v}", "⚽")
                             elif (gol_l + gol_v) < (mem["goles_l"] + mem["goles_v"]):
                                 disparar_alerta_celular(f"❌ ¡GOL ANULADO (VAR)!", f"{nombre_cruce}: {gol_l}-{gol_v}", "🚫")
 
                             if rojas_actuales > mem["rojas"]:
-                                disparar_alerta_celular(f"🟥 ¡ROJA!", f"{nombre_cruce}", "🟥")
+                                disparar_alerta_celular(f"🟥 ¡TARJETA ROJA!", f"{nombre_cruce}", "🟥")
 
                             if mem["state"] != "post" and st_state == "post":
-                                disparar_alerta_celular(f"🏁 FINAL", f"{nombre_cruce} terminó {gol_l}-{gol_v}", "🏁")
+                                disparar_alerta_celular(f"🏁 FINAL DEL PARTIDO", f"{nombre_cruce} terminó {gol_l}-{gol_v}", "🏁")
 
                             st.session_state["memoria_eventos"][ev_id].update({
                                 "state": st_state,
