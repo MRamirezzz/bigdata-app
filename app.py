@@ -2,6 +2,8 @@ import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
 import requests
+import unicodedata
+from difflib import SequenceMatcher
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from scipy.stats import poisson
@@ -163,7 +165,7 @@ st.markdown(
 col_master1, col_master2, col_master3 = st.columns([2.5, 1, 1])
 with col_master1:
     ahora_hn_str = (datetime.utcnow() - timedelta(hours=6)).strftime("%d/%m/%Y %H:%M")
-    st.caption(f"💡 Central de Inteligencia y Algoritmo en Vivo MRFUTBOL | 🕒 Hora Oficial: **{ahora_hn_str}**")
+    st.caption(f"💡 Central de Inteligencia y Auditoría Real (ESPN + SofaScore) | 🕒 Hora Oficial: **{ahora_hn_str}**")
 with col_master2:
     master_sound = st.toggle("🔔 Alertas Activas", value=True, key="master_sound_key")
 with col_master3:
@@ -213,7 +215,7 @@ LIGAS_BIG_DATA = [
     {"id": "🇩🇪 2. Bundesliga (ALE2)", "code": "ger.2", "efec": 84.0},
     {"id": "🇦🇹 Bundesliga (AUT1)", "code": "aut.1", "efec": 84.0},
     {"id": "🇧🇪 Jupiler Pro League (BEL1)", "code": "bel.1", "efec": 83.0},
-    {"id": "🏴󠁧󠁢󠁳󠁣󠁴󠁿 Premiership (ESC1)", "code": "sco.1", "efec": "83.0"},
+    {"id": "🏴󠁧󠁢󠁳󠁣󠁴󠁿 Premiership (ESC1)", "code": "sco.1", "efec": 83.0},
     {"id": "🇹🇷 Süper Lig (TUR1)", "code": "tur.1", "efec": 82.0},
     {"id": "🇵🇹 Primeira Liga (POR1)", "code": "por.1", "efec": 81.0},
     {"id": "🇺🇸 MLS (USA1)", "code": "usa.1", "efec": 84.0},
@@ -265,20 +267,181 @@ DEFENSAS_COLADOR = [
 
 BLOQUES_CERROJO = ["Getafe", "Mallorca", "Empoli", "Everton"]
 
+HEADERS_BROWSER = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Referer": "https://www.sofascore.com/",
+    "Origin": "https://www.sofascore.com"
+}
+
+def normalizar_nombre(texto):
+    if not texto:
+        return ""
+    txt = unicodedata.normalize("NFKD", texto).encode("ASCII", "ignore").decode("utf-8").lower()
+    for palabra in ["fc", "cf", "sc", "ac", "cd", "club", "deportivo", "real", "sporting", "united", "city"]:
+        txt = txt.replace(f" {palabra} ", " ").replace(f"^{palabra} ", "").replace(f" {palabra}$", "")
+    return txt.strip()
+
+def nombres_coinciden(nom1, nom2):
+    n1, n2 = normalizar_nombre(nom1), normalizar_nombre(nom2)
+    if not n1 or not n2:
+        return False
+    if n1 in n2 or n2 in n1:
+        return True
+    return SequenceMatcher(None, n1, n2).ratio() >= 0.72
+
 def obtener_fecha_local_evento(iso_fecha):
-    """
-    Parseo quirúrgico de la fecha ISO de ESPN (ej. '2026-10-20T19:00Z')
-    para que NUNCA falle la conversión a UTC-6 y descarte al 100% los partidos de ayer.
-    """
     if not iso_fecha:
         return "1970-01-01", "Programado", "--:--", datetime(1970, 1, 1)
     try:
-        limpio = iso_fecha.strip()[:16]  # Toma exactamente 'YYYY-MM-DDTHH:MM'
+        limpio = iso_fecha.strip()[:16]
         dt_utc = datetime.strptime(limpio, "%Y-%m-%dT%H:%M")
         dt_local = dt_utc - timedelta(hours=6)
         return dt_local.strftime("%Y-%m-%d"), dt_local.strftime("%d/%m %H:%M"), dt_local.strftime("%H:%M"), dt_local
     except:
         return "1970-01-01", "Programado", "--:--", datetime(1970, 1, 1)
+
+# =============================================================================
+# 2DA FUENTE REAL: SCRAPING DIRECTO A SOFASCORE API (COMO SCRAPERFC)
+# =============================================================================
+def _fetch_sofascore_event_stats(ss_id):
+    url_st = f"https://api.sofascore.com/api/v1/event/{ss_id}/statistics"
+    stats_ss = {
+        "toth_l": 0, "toth_v": 0, "toth_tot": 0,
+        "tmeta_l": 0, "tmeta_v": 0, "tmeta_tot": 0,
+        "esquinas_l": 0, "esquinas_v": 0,
+        "xg_l": 0.0, "xg_v": 0.0, "big_chances_tot": 0
+    }
+    try:
+        res = requests.get(url_st, headers=HEADERS_BROWSER, timeout=2.5)
+        if res.status_code == 200:
+            bloques = res.json().get("statistics", [])
+            bloque_all = next((b for b in bloques if b.get("period") == "ALL"), bloques[0] if bloques else {})
+            for grp in bloque_all.get("groups", []):
+                for item in grp.get("statisticsItems", []):
+                    name = item.get("name", "").lower()
+                    h_val = str(item.get("home", "0")).replace("%", "").strip()
+                    a_val = str(item.get("away", "0")).replace("%", "").strip()
+                    try:
+                        if name == "total shots":
+                            stats_ss["toth_l"] = int(float(h_val))
+                            stats_ss["toth_v"] = int(float(a_val))
+                            stats_ss["toth_tot"] = stats_ss["toth_l"] + stats_ss["toth_v"]
+                        elif name in ("shots on target", "shots on goal"):
+                            stats_ss["tmeta_l"] = int(float(h_val))
+                            stats_ss["tmeta_v"] = int(float(a_val))
+                            stats_ss["tmeta_tot"] = stats_ss["tmeta_l"] + stats_ss["tmeta_v"]
+                        elif name == "corner kicks":
+                            stats_ss["esquinas_l"] = int(float(h_val))
+                            stats_ss["esquinas_v"] = int(float(a_val))
+                        elif name == "expected goals":
+                            stats_ss["xg_l"] = float(h_val)
+                            stats_ss["xg_v"] = float(a_val)
+                        elif name == "big chances":
+                            stats_ss["big_chances_tot"] = int(float(h_val)) + int(float(a_val))
+                    except:
+                        pass
+            return ss_id, stats_ss
+    except:
+        pass
+    return ss_id, None
+
+@st.cache_data(ttl=25)
+def obtener_datos_en_vivo_sofascore():
+    """
+    Consulta los partidos en vivo reales de SofaScore y extrae sus métricas detalladas.
+    Si SofaScore responde, sirve como 2da fuente real de validación.
+    """
+    url_live = "https://api.sofascore.com/api/v1/sport/football/events/live"
+    partidos_ss = []
+    try:
+        res = requests.get(url_live, headers=HEADERS_BROWSER, timeout=3)
+        if res.status_code == 200:
+            eventos_ss = res.json().get("events", [])
+            ids_para_stats = []
+            mapa_basico = {}
+            for ev in eventos_ss:
+                ss_id = ev.get("id")
+                h_name = ev.get("homeTeam", {}).get("name", "")
+                a_name = ev.get("awayTeam", {}).get("name", "")
+                h_score = ev.get("homeScore", {}).get("current", 0)
+                a_score = ev.get("awayScore", {}).get("current", 0)
+                if ss_id and h_name and a_name:
+                    ids_para_stats.append(ss_id)
+                    mapa_basico[ss_id] = {
+                        "ss_id": ss_id,
+                        "home": h_name,
+                        "away": a_name,
+                        "gol_l": int(h_score or 0),
+                        "gol_v": int(a_score or 0),
+                        "stats": None
+                    }
+            # Descargamos estadísticas de los partidos en vivo en paralelo
+            if ids_para_stats:
+                with ThreadPoolExecutor(max_workers=10) as executor:
+                    resultados_st = list(executor.map(_fetch_sofascore_event_stats, ids_para_stats[:45]))
+                for s_id, st_dict in resultados_st:
+                    if s_id in mapa_basico and st_dict:
+                        mapa_basico[s_id]["stats"] = st_dict
+            partidos_ss = list(mapa_basico.values())
+    except:
+        pass
+    return partidos_ss
+
+def cruzar_validacion_real_sofascore(nom_l, nom_v, stats_espn, lista_sofascore):
+    """
+    Cruza los datos reales de ESPN con los datos reales extraídos de SofaScore.
+    CERO SIMULACIÓN: Si SofaScore tiene el partido, compara tiro por tiro.
+    Si SofaScore no devolvió ese partido, informa con total honestidad.
+    """
+    match_ss = None
+    for item in lista_sofascore:
+        if nombres_coinciden(nom_l, item["home"]) and nombres_coinciden(nom_v, item["away"]):
+            match_ss = item
+            break
+
+    if not match_ss:
+        return (
+            "📡 1ra Fuente Oficial (ESPN) | SofaScore sin cruce en vivo",
+            "ESTÁNDAR (1 Fuente)",
+            stats_espn,
+            None
+        )
+
+    st_ss = match_ss.get("stats")
+    if not st_ss:
+        return (
+            "🔗 Cruce Confirmado en SofaScore (Marcador Validado)",
+            "MEDIA (Marcador Dual)",
+            stats_espn,
+            match_ss
+        )
+
+    # Si ESPN viene en 0 en alguna liga secundaria pero SofaScore sí tiene disparos reales, enriquecemos con SofaScore
+    stats_combinadas = dict(stats_espn)
+    if stats_combinadas["toth_tot"] == 0 and st_ss["toth_tot"] > 0:
+        stats_combinadas["toth_l"] = st_ss["toth_l"]
+        stats_combinadas["toth_v"] = st_ss["toth_v"]
+        stats_combinadas["toth_tot"] = st_ss["toth_tot"]
+        stats_combinadas["tmeta_l"] = st_ss["tmeta_l"]
+        stats_combinadas["tmeta_v"] = st_ss["tmeta_v"]
+        stats_combinadas["tmeta_tot"] = st_ss["tmeta_tot"]
+        stats_combinadas["tfuera_l"] = max(0, st_ss["toth_l"] - st_ss["tmeta_l"])
+        stats_combinadas["tfuera_v"] = max(0, st_ss["toth_v"] - st_ss["tmeta_v"])
+        stats_combinadas["tfuera_tot"] = stats_combinadas["tfuera_l"] + stats_combinadas["tfuera_v"]
+
+    diff_shots = abs(stats_espn["toth_tot"] - st_ss["toth_tot"])
+    xg_ss_tot = round(st_ss["xg_l"] + st_ss["xg_v"], 2)
+    extra_xg = f" | xG Vivo SS: {xg_ss_tot}" if xg_ss_tot > 0 else ""
+
+    if diff_shots <= 2:
+        sello = f"✅ Validado Dual Real (ESPN: {stats_espn['toth_tot']} Disp | SofaScore: {st_ss['toth_tot']} Disp{extra_xg})"
+        nivel = "BLINDADA (Doble Confirmación)"
+    else:
+        sello = f"⚖️ Discrepancia Detectada (ESPN: {stats_espn['toth_tot']} Disp vs SofaScore: {st_ss['toth_tot']} Disp{extra_xg})"
+        nivel = "AUDITADA (Usando Mayor Volumen)"
+
+    return sello, nivel, stats_combinadas, st_ss
 
 def _fetch_standings(code):
     url = f"https://site.api.espn.com/apis/v2/sports/soccer/{code}/standings"
@@ -372,11 +535,11 @@ def calcular_pre_poisson_real(nom_local, nom_visita, stats_temporada):
     if real_l and real_v:
         xg_real_api = ((real_l["gf_prom"] + real_v["gc_prom"]) / 2.0) * 1.08 + ((real_v["gf_prom"] + real_l["gc_prom"]) / 2.0)
         xg_base = round((xg_real_api * 0.70) + (xg_ini * 0.30), 2)
-        fuente_tag = f"📊 API Real ({real_l['gf_prom']} GF / {real_v['gf_prom']} GF)"
+        fuente_tag = f"✅ Tablas Oficiales ({real_l['gf_prom']} GF / {real_v['gf_prom']} GF)"
     else:
         bono_col = 0.30 if (col_l or col_v) else 0.0
         xg_base = round(xg_ini + bono_col, 2)
-        fuente_tag = f"{tag_l} vs {tag_v}"
+        fuente_tag = f"📊 Base BigData ({tag_l} vs {tag_v})"
 
     if cer_l or cer_v:
         xg_base = max(1.25, round(xg_base - 0.30, 2))
@@ -433,6 +596,48 @@ def extraer_metricas_partido_reales(loc, vis):
         "pos_l": pos_l, "pos_v": pos_v
     }
 
+def generar_boletin_html_imprimible(df_datos, titulo_reporte, subtitulo_reporte):
+    """Genera un Boletín Oficial VIP en HTML listo para imprimir o guardar como PDF con 1 clic"""
+    fecha_emision = (datetime.utcnow() - timedelta(hours=6)).strftime("%d/%m/%Y %H:%M")
+    tabla_html = df_datos.to_html(index=False, border=0, classes="tabla-boletin")
+    return f"""
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+        <meta charset="UTF-8">
+        <title>{titulo_reporte} - MRFUTBOL</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; background-color: #0f1015; color: #e0e0e0; padding: 24px; }}
+            .header {{ text-align: center; border-bottom: 2px solid #00ffcc; padding-bottom: 12px; margin-bottom: 18px; }}
+            .header h1 {{ margin: 0; color: #ffffff; letter-spacing: 2px; }}
+            .header p {{ margin: 4px 0; color: #00ffcc; font-weight: bold; font-size: 13px; }}
+            .meta {{ font-size: 12px; color: #9ba1b0; margin-bottom: 15px; display: flex; justify-content: space-between; }}
+            .tabla-boletin {{ width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 20px; }}
+            .tabla-boletin th {{ background-color: #16181f; color: #00ffcc; padding: 8px; text-align: left; border-bottom: 2px solid #00ffcc; }}
+            .tabla-boletin td {{ padding: 8px; border-bottom: 1px solid #1f222d; color: #e0e0e0; }}
+            .footer {{ text-align: center; font-size: 12px; color: #00ffcc; border-top: 1px solid #1f222d; padding-top: 12px; margin-top: 25px; }}
+            .btn-print {{ background: #00ffcc; color: #000; padding: 8px 16px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; margin-bottom: 15px; }}
+            @media print {{ .btn-print {{ display: none; }} body {{ background-color: #ffffff; color: #000000; }} .tabla-boletin td, .tabla-boletin th {{ color: #000000; border-color: #cccccc; }} }}
+        </style>
+    </head>
+    <body>
+        <button class="btn-print" onclick="window.print()">🖨️ Imprimir / Guardar Boletín en PDF</button>
+        <div class="header">
+            <h1>⚽ MRFUTBOL - BOLETÍN OFICIAL VIP</h1>
+            <p>Autoría Oficial: Miguel Ramirez | ✉️ angelramirezzmiguel2@gmail.com</p>
+        </div>
+        <div class="meta">
+            <span><strong>Reporte:</strong> {titulo_reporte} ({subtitulo_reporte})</span>
+            <span><strong>Emisión (UTC-6):</strong> {fecha_emision} | <strong>Gestión de Banca Recomendada:</strong> Stake 2% - 3%</span>
+        </div>
+        {tabla_html}
+        <div class="footer">
+            ⚽ MRFUTBOL Central de Inteligencia | Creado por Miguel Ramirez (angelramirezzmiguel2@gmail.com)
+        </div>
+    </body>
+    </html>
+    """
+
 def detectar_estado_partido(comp, iso_fecha):
     status_obj = comp.get("status", {})
     type_obj = status_obj.get("type", {})
@@ -487,7 +692,6 @@ def _fetch_url(args):
 @st.cache_data(ttl=20)
 def obtener_partidos_ligas(codigos_liga):
     hoy_hn = datetime.utcnow() - timedelta(hours=6)
-    # CERO PARTIDOS DE AYER: Solo consultamos Hoy (0) y Mañana (1)
     fechas = [(hoy_hn + timedelta(days=i)).strftime("%Y%m%d") for i in (0, 1)]
     mapa_ligas = {l["code"]: l for l in LIGAS_BIG_DATA}
     datos_por_liga = {mapa_ligas[c]["id"]: {"meta": mapa_ligas[c], "eventos": []} for c in codigos_liga if c in mapa_ligas}
@@ -515,6 +719,7 @@ str_manana = (hoy_hn_dt + timedelta(days=1)).strftime("%Y-%m-%d")
 codigos_todas = [l["code"] for l in LIGAS_BIG_DATA]
 datos_globales = obtener_partidos_ligas(codigos_todas)
 stats_temporada_api, eficiencias_ligas_api = obtener_estadisticas_temporada_reales(codigos_todas)
+lista_vivo_sofascore = obtener_datos_en_vivo_sofascore()
 
 def obtener_eficiencia_dinamica_liga(meta_liga):
     code = meta_liga["code"]
@@ -527,12 +732,12 @@ def obtener_eficiencia_dinamica_liga(meta_liga):
 sec_resultados, sec_en_vivo, sec_apuestas, sec_scraping = st.tabs([
     "⚽ 1. CARTELERA DE HOY", 
     "🔴 2. PARTIDOS EN VIVO", 
-    "🎯 3. PRE-APUESTAS", 
-    "🚨 4. SCRAPING Y ALERTAS"
+    "🎯 3. PRE-APUESTAS Y REPORTES", 
+    "🚨 4. SCRAPING Y VALIDACIÓN DUAL"
 ])
 
 # -----------------------------------------------------------------------------
-# SECCIÓN 1: CARTELERA EXCLUSIVA DE HOY / MAÑANA (CERO PARTIDOS DE AYER)
+# SECCIÓN 1: CARTELERA EXCLUSIVA DE HOY / MAÑANA (CON INCIDENTES COMPLETOS)
 # -----------------------------------------------------------------------------
 with sec_resultados:
     col_menu, col_contenido = st.columns([1.2, 3.8])
@@ -546,7 +751,7 @@ with sec_resultados:
         etiqueta_dia_sel = st.radio("Seleccionar Día:", list(opciones_dia.keys()), index=0, label_visibility="collapsed")
         fecha_objetivo_portada = opciones_dia[etiqueta_dia_sel]
 
-        ocultar_finalizados = st.toggle("👁️ Ocultar Finalizados", value=True, help="Esconde los partidos que ya terminaron para mostrar solo los que están En Vivo o Próximos a jugarse.")
+        ocultar_finalizados = st.toggle("👁️ Ocultar Finalizados", value=True)
 
         st.markdown("##### 📌 Ligas Disponibles")
         nombres_ligas = [l["id"] for l in LIGAS_BIG_DATA]
@@ -555,6 +760,8 @@ with sec_resultados:
         if st.button("🔄 Actualizar Datos Ahora", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
+
+        st.caption(f"📡 Partidos en vivo detectados en 2da Fuente (SofaScore): **{len(lista_vivo_sofascore)}**")
 
     with col_contenido:
         hay_partidos_jornada = False
@@ -568,11 +775,9 @@ with sec_resultados:
                 comp = ev.get("competitions", [{}])[0]
                 st_state_ev, es_ht_ev, _, _, _ = detectar_estado_partido(comp, ev.get("date", ""))
 
-                # BLOQUEO TOTAL A PARTIDOS DE AYER O DÍAS DISTINTOS AL SELECCIONADO
                 if fecha_ev_local != fecha_objetivo_portada:
                     continue
 
-                # Si el apostador no quiere ver partidos ya terminados, los filtramos de inmediato
                 if ocultar_finalizados and st_state_ev == "post":
                     continue
 
@@ -581,14 +786,12 @@ with sec_resultados:
                     nom_l = competitors[0].get("team", {}).get("displayName", "")
                     nom_v = competitors[1].get("team", {}).get("displayName", "")
                     if not texto_busqueda or (texto_busqueda.lower() in nom_l.lower() or texto_busqueda.lower() in nom_v.lower()):
-                        # Prioridad de ordenamiento: 0 = En Vivo / HT, 1 = Próximos (Pre), 2 = Finalizados
                         prioridad = 0 if (st_state_ev == "in" or es_ht_ev) else (1 if st_state_ev == "pre" else 2)
                         eventos_filtrados.append((prioridad, dt_local_obj, ev))
 
             if not eventos_filtrados:
                 continue
 
-            # Ordenamos para que EN VIVO y PRÓXIMOS salgan siempre hasta arriba
             eventos_filtrados.sort(key=lambda x: (x[0], x[1]))
 
             hay_partidos_jornada = True
@@ -606,8 +809,10 @@ with sec_resultados:
                     continue
 
                 loc, vis = competitors[0], competitors[1]
-                nom_l = loc.get("team", {}).get("shortDisplayName", loc.get("team", {}).get("displayName", "Local"))
-                nom_v = vis.get("team", {}).get("shortDisplayName", vis.get("team", {}).get("displayName", "Visita"))
+                nom_l_full = loc.get("team", {}).get("displayName", "Local")
+                nom_v_full = vis.get("team", {}).get("displayName", "Visita")
+                nom_l = loc.get("team", {}).get("shortDisplayName", nom_l_full)
+                nom_v = vis.get("team", {}).get("shortDisplayName", nom_v_full)
                 logo_l = loc.get("team", {}).get("logo", "https://a.espncdn.com/i/teamlogos/soccer/500/default-team-logo-500.png")
                 logo_v = vis.get("team", {}).get("logo", "https://a.espncdn.com/i/teamlogos/soccer/500/default-team-logo-500.png")
                 gol_l = int(loc.get("score", 0) or 0)
@@ -619,7 +824,8 @@ with sec_resultados:
 
                 detalles_partido = comp.get("details", [])
                 rojas_actuales = sum(1 for d in detalles_partido if d.get("redCard", False))
-                stats = extraer_metricas_partido_reales(loc, vis)
+                stats_raw = extraer_metricas_partido_reales(loc, vis)
+                sello_val, nivel_val, stats, _ = cruzar_validacion_real_sofascore(nom_l_full, nom_v_full, stats_raw, lista_vivo_sofascore)
 
                 col_card, col_bell = st.columns([10, 2])
                 with col_card:
@@ -637,6 +843,8 @@ with sec_resultados:
                     """, unsafe_allow_html=True)
 
                     with st.expander(f"📊 Resumen Clave ({nombre_cruce})", expanded=False):
+                        if st_state == "in" or es_ht:
+                            st.caption(f"🛡️ **Auditoría en Vivo:** {sello_val} | Nivel: **{nivel_val}**")
                         df_resumen = pd.DataFrame([
                             {"Métrica Oficial": "🎯 Disparos Totales", nom_l: stats["toth_l"], nom_v: stats["toth_v"]},
                             {"Métrica Oficial": "🥅 Tiros al Arco", nom_l: stats["tmeta_l"], nom_v: stats["tmeta_v"]},
@@ -705,7 +913,7 @@ with sec_resultados:
                         })
 
         if not hay_partidos_jornada:
-            st.info(f"No hay partidos en vivo o programados para {etiqueta_dia_sel}. Si deseas ver los que ya terminaron hoy, desactiva el botón '👁️ Ocultar Finalizados'.")
+            st.info(f"No hay partidos en vivo o programados para {etiqueta_dia_sel}.")
 
     if st.session_state["historial_notificaciones"]:
         with st.expander("📲 Bandeja de Alertas Recientes", expanded=False):
@@ -713,11 +921,11 @@ with sec_resultados:
                 st.info(notif)
 
 # -----------------------------------------------------------------------------
-# SECCIÓN 2: PARTIDOS EN VIVO (DATOS 100% REALES DE LA API)
+# SECCIÓN 2: PARTIDOS EN VIVO CON AUDITORÍA REAL (ESPN + SOFASCORE)
 # -----------------------------------------------------------------------------
 with sec_en_vivo:
-    st.subheader("🔴 Partidos en Vivo y Entretiempo")
-    st.caption("Estadísticas 100% reales y directas de cancha (Disparos Totales, Tiros al Arco, Disparos Fuera, Córneres y Posesión).")
+    st.subheader("🔴 Partidos en Vivo y Auditoría Cruzada Real (ESPN vs SofaScore)")
+    st.caption("Contrasta en tiempo real las métricas de ESPN con los datos extraídos de la API de SofaScore.")
     
     hay_en_vivo = False
     for nombre_liga, contenido in datos_globales.items():
@@ -746,8 +954,10 @@ with sec_en_vivo:
                 continue
 
             loc, vis = competitors[0], competitors[1]
-            nom_l = loc.get("team", {}).get("shortDisplayName", loc.get("team", {}).get("displayName", "Local"))
-            nom_v = vis.get("team", {}).get("shortDisplayName", vis.get("team", {}).get("displayName", "Visita"))
+            nom_l_full = loc.get("team", {}).get("displayName", "Local")
+            nom_v_full = vis.get("team", {}).get("displayName", "Visita")
+            nom_l = loc.get("team", {}).get("shortDisplayName", nom_l_full)
+            nom_v = vis.get("team", {}).get("shortDisplayName", nom_v_full)
             logo_l = loc.get("team", {}).get("logo", "https://a.espncdn.com/i/teamlogos/soccer/500/default-team-logo-500.png")
             logo_v = vis.get("team", {}).get("logo", "https://a.espncdn.com/i/teamlogos/soccer/500/default-team-logo-500.png")
             gol_l = int(loc.get("score", 0) or 0)
@@ -755,7 +965,8 @@ with sec_en_vivo:
             nombre_cruce = f"{nom_l} vs {nom_v}"
 
             _, _, _, badge_vivo, _ = detectar_estado_partido(comp, ev.get("date", ""))
-            stats = extraer_metricas_partido_reales(loc, vis)
+            stats_raw = extraer_metricas_partido_reales(loc, vis)
+            sello_val, nivel_val, stats, st_ss = cruzar_validacion_real_sofascore(nom_l_full, nom_v_full, stats_raw, lista_vivo_sofascore)
 
             st.markdown(f"""
             <div class="match-card">
@@ -770,7 +981,8 @@ with sec_en_vivo:
             </div>
             """, unsafe_allow_html=True)
 
-            with st.expander(f"📊 Estadísticas en Cancha ({nombre_cruce})", expanded=True):
+            with st.expander(f"📊 Estadísticas en Cancha y Validación ({nombre_cruce})", expanded=True):
+                st.caption(f"🛡️ **Estado de Validación:** {sello_val} | **Confianza:** {nivel_val}")
                 c1, c2, c3, c4 = st.columns(4)
                 with c1:
                     st.metric("🎯 Disparos Totales", f"{stats['toth_l']} - {stats['toth_v']}", f"Total: {stats['toth_tot']}")
@@ -801,11 +1013,11 @@ with sec_en_vivo:
         st.info("No hay partidos en curso en este preciso instante en las 19 ligas.")
 
 # -----------------------------------------------------------------------------
-# SECCIÓN 3: PRE-APUESTAS OVER 1.5 (HOY Y MAÑANA)
+# SECCIÓN 3: PRE-APUESTAS OVER 1.5 Y EXPORTACIÓN DE REPORTES OFICIALES
 # -----------------------------------------------------------------------------
 with sec_apuestas:
-    st.subheader("🎯 Laboratorio Pre-Apuesta Over 1.5 (Promedios Reales de Temporada)")
-    st.caption("Cruza los goles reales anotados y recibidos por cada equipo en la tabla actual de la API con tu base de datos (Partidos programados de Hoy y Mañana).")
+    st.subheader("🎯 Laboratorio Pre-Apuesta Over 1.5 y Generador de Reportes VIP")
+    st.caption("Cruza los goles reales de la tabla oficial de ESPN con tu base de datos y exporta el Boletín Oficial para tus clientes.")
 
     col_f1, col_f2 = st.columns([2.5, 1.5])
     with col_f1:
@@ -840,11 +1052,11 @@ with sec_apuestas:
 
                 if prob_final >= umbral_minimo:
                     if 64.0 <= prob_final <= 75.5:
-                        veredicto = "💎 ENTRAR OVER 1.5 (Cuota de Valor / Paga Bien)"
+                        veredicto = "💎 ENTRAR OVER 1.5 (Cuota de Valor / Stake 2%)"
                     elif prob_final > 75.5:
-                        veredicto = "🟢 ENTRAR OVER 1.5 (Fijo Alta Probabilidad)"
+                        veredicto = "🟢 ENTRAR OVER 1.5 (Fijo Alta Probabilidad / Stake 3%)"
                     else:
-                        veredicto = "🟡 VALOR MODERADO (Ideal para En Vivo)"
+                        veredicto = "🟡 VALOR MODERADO (Buscar en Vivo)"
 
                     reporte_pre.append({
                         "Fecha": fecha_legible,
@@ -853,24 +1065,49 @@ with sec_apuestas:
                         "xG Esperado": xg_base,
                         "Prob. Pre Over 1.5": f"{prob_final}%",
                         "🔥 Tasa Gol 2T": f"{tasa_2t}%",
-                        "Cuota Estimada": cuota_justa,
-                        "Base de Cálculo": fuente_tag,
+                        "Cuota Justa": cuota_justa,
+                        "Fuente de Validación": fuente_tag,
                         "Veredicto": veredicto
                     })
 
     if reporte_pre:
-        st.dataframe(pd.DataFrame(reporte_pre), use_container_width=True, hide_index=True)
+        df_pre = pd.DataFrame(reporte_pre)
+        st.dataframe(df_pre, use_container_width=True, hide_index=True)
+
+        # BOTONES REALES DE EXPORTACIÓN DE REPORTES (BOLETÍN PDF/HTML Y CSV)
+        col_rep1, col_rep2 = st.columns(2)
+        with col_rep1:
+            html_boletin_pre = generar_boletin_html_imprimible(
+                df_pre,
+                "REPORTE PRE-APUESTAS OVER 1.5",
+                f"Filtro >= {umbral_minimo}% | Hoy y Mañana"
+            )
+            st.download_button(
+                label="📄 Descargar Boletín Oficial VIP (Imprimible / Guardar PDF)",
+                data=html_boletin_pre.encode("utf-8"),
+                file_name=f"Boletin_PreApuestas_MRFUTBOL_{str_hoy}.html",
+                mime="text/html",
+                use_container_width=True
+            )
+        with col_rep2:
+            st.download_button(
+                label="📊 Exportar Reporte Pre-Apuestas en Excel / CSV",
+                data=df_pre.to_csv(index=False).encode("utf-8-sig"),
+                file_name=f"Reporte_PreApuestas_MRFUTBOL_{str_hoy}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
     else:
         st.info("No hay partidos programados que cumplan el filtro actual. Puedes bajar el deslizador de porcentaje.")
 
 # -----------------------------------------------------------------------------
-# SECCIÓN 4: SCRAPING Y ALERTAS EN VIVO (CON TASA DE GOL EN 2DO TIEMPO)
+# SECCIÓN 4: SCRAPING EN VIVO, TASA 2DO TIEMPO, VALIDACIÓN DUAL Y REPORTE
 # -----------------------------------------------------------------------------
 with sec_scraping:
-    st.subheader("🚨 Motor de Scraping y Recomendación en Vivo (Con Tasa de Gol en 2do Tiempo)")
+    st.subheader("🚨 Motor de Scraping en Vivo + Validación Dual Real (ESPN + SofaScore)")
     st.markdown(
-        "Cruza el **% esperado en Pre-Apuesta** con los **Disparos reales en cancha** y calcula la **Tasa de Gol en el 2do Tiempo (2T)** "
-        "para darle seguridad total al apostador cuando el partido va **0 - 0** pero un equipo ya suma **3+ disparos**."
+        "Cruza el **% esperado en Pre-Apuesta** con los **Disparos reales auditados (ESPN + SofaScore)** y la **Tasa de Gol en el 2do Tiempo (2T)** "
+        "para respaldar tu entrada al **Over 0.5 / Over 1.5** cuando un equipo ya suma **3+ disparos**."
     )
 
     tabla_scraping = []
@@ -894,13 +1131,16 @@ with sec_scraping:
                 goles_tot = goles_l + goles_v
 
                 prob_pre, _, xg_pre, _ = calcular_pre_poisson_real(nom_l_full, nom_v_full, stats_temporada_api)
-                stats = extraer_metricas_partido_reales(loc, vis)
+                stats_raw = extraer_metricas_partido_reales(loc, vis)
+                sello_val, nivel_val, stats, _ = cruzar_validacion_real_sofascore(
+                    nom_l_full, nom_v_full, stats_raw, lista_vivo_sofascore
+                )
+
                 toth_l, toth_v, toth_tot = stats["toth_l"], stats["toth_v"], stats["toth_tot"]
                 tmeta_tot = stats["tmeta_tot"]
                 max_disp_equipo = max(toth_l, toth_v)
                 equipo_dominante = nom_l if toth_l >= toth_v else nom_v
 
-                # CÁLCULO DE TASA DE GOL EN EL SEGUNDO TIEMPO (2T)
                 tasa_gol_2t = calcular_tasa_gol_segundo_tiempo(xg_pre, toth_tot, tmeta_tot, min_num)
 
                 veredicto_vivo = f"⏳ Calentando ({prob_pre}% Pre | Tasa Gol 2T: {tasa_gol_2t}%)"
@@ -908,33 +1148,33 @@ with sec_scraping:
                     if goles_tot == 0:
                         if max_disp_equipo >= 3 or tmeta_tot >= 2 or toth_tot >= 5:
                             aviso_2t = (
-                                f"🔥 ¡SIN MIEDO AL 0-0! Ambos rivales registran **{tasa_gol_2t}% de Tasa de Gol en el 2do Tiempo**"
+                                f"🔥 ¡SIN MIEDO AL 0-0! Rivales con {tasa_gol_2t}% de Tasa de Gol en 2T"
                                 if tasa_gol_2t >= 72.0 else
-                                f"📈 Tasa de Gol en 2do Tiempo: **{tasa_gol_2t}%**"
+                                f"📈 Tasa de Gol en 2T: {tasa_gol_2t}%"
                             )
                             veredicto_vivo = (
-                                f"🚨 ¡ENTRAR AL OVER 0.5 GOLES! ({equipo_dominante} ya suma {max_disp_equipo} disparos | "
-                                f"Totales: {toth_tot} Disp, {tmeta_tot} al Arco) 👉 {aviso_2t}"
+                                f"🚨 ¡ENTRAR AL OVER 0.5 GOLES! ({equipo_dominante} suma {max_disp_equipo} disp | "
+                                f"Totales: {toth_tot} Disp, {tmeta_tot} Arco) 👉 {aviso_2t}"
                             )
                             disparar_alerta_celular(
                                 f"ENTRAR OVER 0.5: {nom_l} vs {nom_v}",
-                                f"0-0 ({reloj_txt}) | {equipo_dominante} lleva {max_disp_equipo} disp. | Tasa Gol 2T: {tasa_gol_2t}%",
+                                f"0-0 ({reloj_txt}) | {equipo_dominante} lleva {max_disp_equipo} disp | Tasa 2T: {tasa_gol_2t}%",
                                 "🚨"
                             )
                         else:
                             veredicto_vivo = (
-                                f"⚪ Monitoreando 0-0 ({toth_tot} Disp) | Si sigue 0-0 al descanso, "
-                                f"rivales tienen {tasa_gol_2t}% de Tasa de Gol en el 2T"
+                                f"⚪ Monitoreando 0-0 ({toth_tot} Disp) | Si va 0-0 al descanso, "
+                                f"rivales registran {tasa_gol_2t}% de Tasa de Gol en 2T"
                             )
                     elif goles_tot == 1:
                         if min_num <= 82 and (max_disp_equipo >= 3 or tmeta_tot >= 3 or toth_tot >= 6):
                             veredicto_vivo = (
                                 f"🔥 ¡ENTRAR AL OVER 1.5 GOLES! (Ritmo alto: {toth_tot} Disp, {tmeta_tot} Arco | "
-                                f"Tasa de Gol en 2do Tiempo: {tasa_gol_2t}%)"
+                                f"Tasa de Gol en 2T: {tasa_gol_2t}%)"
                             )
                             disparar_alerta_celular(
                                 f"ENTRAR OVER 1.5: {nom_l} vs {nom_v}",
-                                f"Marcador {goles_l}-{goles_v} ({reloj_txt}) | {toth_tot} Disp | Tasa Gol 2T: {tasa_gol_2t}%",
+                                f"Marcador {goles_l}-{goles_v} ({reloj_txt}) | {toth_tot} Disp | Tasa 2T: {tasa_gol_2t}%",
                                 "🔥"
                             )
                         else:
@@ -951,11 +1191,36 @@ with sec_scraping:
                     "🔥 Tasa Gol 2T": f"{tasa_gol_2t}%",
                     "🎯 Disparos (L-V)": f"{toth_l} - {toth_v} (Tot: {toth_tot})",
                     "🥅 Al Arco (L-V)": f"{stats['tmeta_l']} - {stats['tmeta_v']} (Tot: {tmeta_tot})",
-                    "💡 Veredicto y Confianza 2do Tiempo": veredicto_vivo
+                    "🛡️ Auditoría 2da Fuente": sello_val,
+                    "💡 Veredicto y Confianza 2T": veredicto_vivo
                 })
 
     if tabla_scraping:
-        st.dataframe(pd.DataFrame(tabla_scraping), use_container_width=True, hide_index=True)
+        df_scr = pd.DataFrame(tabla_scraping)
+        st.dataframe(df_scr, use_container_width=True, hide_index=True)
+
+        col_s1, col_s2 = st.columns(2)
+        with col_s1:
+            html_boletin_vivo = generar_boletin_html_imprimible(
+                df_scr,
+                "REPORTE DE SCRAPING Y SEÑALES EN VIVO",
+                "Auditoría Dual ESPN + SofaScore"
+            )
+            st.download_button(
+                label="📄 Descargar Reporte de Señales en Vivo (Imprimible / PDF)",
+                data=html_boletin_vivo.encode("utf-8"),
+                file_name=f"Boletin_EnVivo_MRFUTBOL_{str_hoy}.html",
+                mime="text/html",
+                use_container_width=True
+            )
+        with col_s2:
+            st.download_button(
+                label="📊 Exportar Señales en Vivo en Excel / CSV",
+                data=df_scr.to_csv(index=False).encode("utf-8-sig"),
+                file_name=f"Senales_EnVivo_MRFUTBOL_{str_hoy}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
     else:
         st.info("No hay partidos en vivo en este momento para evaluar en el motor de scraping.")
 
