@@ -2,5 +2,4 @@ streamlit
 pandas
 requests
 scipy
-gspread
-google-auth
+fpdf2
