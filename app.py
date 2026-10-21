@@ -122,7 +122,7 @@ st.markdown("<div class='subtitulo-autor'>Miguel Ramirez &nbsp;|&nbsp; ✉️ an
 # Barra de control general de alertas (Interruptor Maestro)
 col_master1, col_master2 = st.columns([3, 1])
 with col_master1:
-    st.caption("💡 Radar en tiempo real optimizado (Rango amplio sincronizado).")
+    st.caption("💡 Scraping en vivo filtrado solo para partidos en curso.")
 with col_master2:
     master_sound = st.toggle("🔔 Alertas Activas", value=True)
 
@@ -263,7 +263,6 @@ def formatear_fecha_local(iso_str):
 
 @st.cache_data(ttl=15)
 def obtener_partidos_ligas(codigos_espn):
-    # Consultamos un rango amplio (ayer, hoy y mañana) para atrapar sin fallo los partidos en vivo sin desfases horarios
     hoy = datetime.now()
     fechas = [(hoy + timedelta(days=i)).strftime("%Y%m%d") for i in range(-1, 3)]
     mapa_ligas = {l["espn"]: l for l in LIGAS_BIG_DATA}
@@ -525,10 +524,11 @@ with sec_apuestas:
                 st.info("Sin partidos pendientes.")
 
 # -----------------------------------------------------------------------------
-# SECCIÓN 3: SCRAPING EN VIVO
+# SECCIÓN 3: SCRAPING EN VIVO (FILTRADO SOLO PARTIDOS EN JUEGO)
 # -----------------------------------------------------------------------------
 with sec_live:
     st.subheader("🚨 Scraping En Vivo (Minuto 18+)")
+    st.markdown("⚠️ *Muestra únicamente partidos **En Juego** (Min 18+). Salta alarma con Tiros a Meta >= 3 (0-0) o Tiros a Meta >= 4 (con 1 gol).*")
     activar_scraping_2min = st.checkbox("🔄 Actualizar cada 2 minutos", value=True)
 
     codigos_todas = [l["espn"] for l in LIGAS_BIG_DATA]
@@ -539,16 +539,25 @@ with sec_live:
         for evento in contenido["eventos"]:
             comp = evento.get("competitions", [{}])[0]
             status_type = comp.get("status", {}).get("type", {}).get("state", "pre")
-            reloj = comp.get("status", {}).get("displayClock", "0'")
+            
+            # FILTRO ESTRICTO: Mostrar SOLAMENTE partidos que están En Juego (in)
+            if status_type != "in":
+                continue
 
+            reloj = comp.get("status", {}).get("displayClock", "0'")
             competitors = comp.get("competitors", [])
             if len(competitors) == 2:
                 local = competitors[0]
                 visita = competitors[1]
                 nom_l = local.get("team", {}).get("shortDisplayName", "Local")
                 nom_v = visita.get("team", {}).get("shortDisplayName", "Visita")
-                goles_tot = int(local.get("score", 0) or 0) + int(visita.get("score", 0) or 0)
-                tmeta = int(extraer_stat_espn(local, ["shotsOnTarget"]) or 0) + int(extraer_stat_espn(visita, ["shotsOnTarget"]) or 0)
+                goles_l = int(local.get("score", 0) or 0)
+                goles_v = int(visita.get("score", 0) or 0)
+                goles_tot = goles_l + goles_v
+                
+                tmeta_l = int(extraer_stat_espn(local, ["shotsOnTarget"]) or 0)
+                tmeta_v = int(extraer_stat_espn(visita, ["shotsOnTarget"]) or 0)
+                tmeta_total = tmeta_l + tmeta_v
 
                 min_num = 0
                 try:
@@ -557,20 +566,29 @@ with sec_live:
                     min_num = 0
 
                 veredicto = "Esperando Min 18'"
-                if status_type == "in" and min_num >= 18 and goles_tot == 0 and tmeta >= 3:
-                    veredicto = "🚨 ¡METER OVER 0.5 / 1.5!"
-                    disparar_alerta_celular(f"SCRAPING LIVE ({nom_l} vs {nom_v})", f"Min {reloj} | Tiros meta: {tmeta}", "🚨")
+                if min_num >= 18:
+                    if goles_tot == 0 and tmeta_total >= 3:
+                        veredicto = "🚨 ¡METER OVER 0.5 / 1.5!"
+                        disparar_alerta_celular(f"SCRAPING LIVE ({nom_l} vs {nom_v})", f"Min {reloj} (0-0) | Tiros a meta: {tmeta_total}", "🚨")
+                    elif goles_tot == 1 and min_num <= 78 and tmeta_total >= 4:
+                        veredicto = "🔥 ¡METER OVER 1.5 / 2.5!"
+                        disparar_alerta_celular(f"SCRAPING LIVE ({nom_l} vs {nom_v})", f"Min {reloj} ({goles_l}-{goles_v}) | Tiros a meta: {tmeta_total}", "🔥")
+                    else:
+                        veredicto = f"🟢 Activo (Tiros meta: {tmeta_total})"
 
                 tabla_scraping.append({
-                    "Reloj": f"🔴 {reloj}" if status_type == "in" else "Programado",
+                    "Reloj": f"🔴 {reloj}",
                     "Liga": nombre_liga,
                     "Partido": f"{nom_l} vs {nom_v}",
-                    "Tiros a Meta": tmeta,
-                    "Veredicto": veredicto
+                    "Marcador": f"{goles_l} - {goles_v}",
+                    "🎯 Tiros a Meta": tmeta_total,
+                    "⚡ Veredicto": veredicto
                 })
 
     if tabla_scraping:
         st.dataframe(pd.DataFrame(tabla_scraping), use_container_width=True, hide_index=True)
+    else:
+        st.info("No hay partidos en juego en este momento en las 19 ligas monitoreadas.")
 
     if activar_scraping_2min:
         time.sleep(120)
