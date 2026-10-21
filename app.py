@@ -352,6 +352,7 @@ with sec_futbol:
                     gol_v = int(vis.get("score", 0) or 0)
                     nombre_cruce = f"{nom_l} vs {nom_v}"
 
+                    # EXTRACCIÓN AISLADA Y EXCLUSIVA DE DETALLES DE ESTE PARTIDO
                     detalles_partido = comp.get("details", [])
                     rojas_actuales = sum(1 for d in detalles_partido if d.get("redCard", False))
 
@@ -381,7 +382,7 @@ with sec_futbol:
                         </div>
                         """, unsafe_allow_html=True)
 
-                        # AISLAMIENTO ESTRICTO DE DETALLES POR CADA PARTIDO ESPECÍFICO
+                        # DESPLEGABLE CON FILTRO ÚNICO POR CÓDIGO DE EVENTO
                         with st.expander(f"📊 Resumen Clave ({nombre_cruce})", expanded=False):
                             eventos_texto = []
                             for d in detalles_partido:
@@ -400,7 +401,7 @@ with sec_futbol:
                                 for ev_linea in eventos_texto:
                                     st.markdown(f"- {ev_linea}")
                             else:
-                                st.caption("Sin goles ni tarjetas registradas.")
+                                st.caption("Sin goles ni tarjetas registradas en este encuentro.")
 
                             pos_l = extraer_stat_espn(loc, ["possessionPct"])
                             pos_v = extraer_stat_espn(vis, ["possessionPct"])
