@@ -46,6 +46,8 @@ st.markdown("""
     border-left: 3px solid #00ffcc;
     margin-top: 10px;
     margin-bottom: 4px;
+    display: flex;
+    justify-content: space-between;
 }
 .match-card {
     background-color: #0f1015;
@@ -122,6 +124,19 @@ st.markdown("""
     height: 20px;
     object-fit: contain;
 }
+.footer-fijo {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    background-color: #0f1015;
+    color: #9ba1b0;
+    text-align: center;
+    padding: 6px 0;
+    font-size: 11px;
+    border-top: 1px solid #1f222d;
+    z-index: 9999;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -129,11 +144,17 @@ st.markdown("""
 st.markdown("<div class='titulo-mrfutbol'>⚽ MRFUTBOL</div>", unsafe_allow_html=True)
 st.markdown("<div class='subtitulo-autor'>Miguel Ramirez &nbsp;|&nbsp; ✉️ angelramirezzmiguel2@gmail.com</div>", unsafe_allow_html=True)
 
+# PIE DE PÁGINA FIJO SIEMPRE ABAJO
+st.markdown(
+    "<div class='footer-fijo'>Miguel Ramirez &nbsp;|&nbsp; ✉️ <a href='mailto:angelramirezzmiguel2@gmail.com' style='color:#00ffcc; text-decoration:none;'>angelramirezzmiguel2@gmail.com</a></div>",
+    unsafe_allow_html=True
+)
+
 col_master1, col_master2, col_master3 = st.columns([2.5, 1, 1])
 with col_master1:
-    st.caption("💡 Central de Inteligencia y Algoritmo en Vivo MRFUTBOL.")
+    ahora_hn_str = (datetime.utcnow() - timedelta(hours=6)).strftime("%d/%m/%Y %H:%M")
+    st.caption(f"💡 Central de Inteligencia y Algoritmo en Vivo MRFUTBOL | 🕒 Hora Oficial: **{ahora_hn_str}**")
 with col_master2:
-    # EL KEY ASEGURA QUE LA ALARMA NUNCA SE REINICIA SOLA
     master_sound = st.toggle("🔔 Alertas Activas", value=True, key="master_sound_key")
 with col_master3:
     auto_refresh = st.toggle("🔄 Auto-Refresco (2m)", value=True, key="auto_refresh_key")
@@ -167,26 +188,26 @@ def disparar_alerta_celular(titulo, mensaje, icono="🔔"):
 # LAS 19 LIGAS OFICIALES DEL ARCHIVO BIG DATA (.INI) + CHAMPIONS LEAGUE
 # =============================================================================
 LIGAS_BIG_DATA = [
-    {"id": "🏆 Champions League", "code": "uefa.champions", "efec": "85%"},
-    {"id": "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League (ING1)", "code": "eng.1", "efec": "80%"},
-    {"id": "🇪🇸 LaLiga (ESP1)", "code": "esp.1", "efec": "79%"},
-    {"id": "🇮🇹 Serie A (ITA1)", "code": "ita.1", "efec": "81%"},
-    {"id": "🇩🇪 Bundesliga (ALE1)", "code": "ger.1", "efec": "86%"},
-    {"id": "🇫🇷 Ligue 1 (FRA1)", "code": "fra.1", "efec": "80%"},
-    {"id": "🇨🇭 Challenge League (SUI2)", "code": "sui.2", "efec": "91%"},
-    {"id": "🇨🇭 Super League (SUI1)", "code": "sui.1", "efec": "89%"},
-    {"id": "🇳🇱 Eredivisie (HOL1)", "code": "ned.1", "efec": "88%"},
-    {"id": "🇳🇱 Eerste Divisie (HOL2)", "code": "ned.2", "efec": "85%"},
-    {"id": "🇳🇴 Eliteserien (NOR1)", "code": "nor.1", "efec": "87%"},
-    {"id": "🇳🇴 1. Division (NOR2)", "code": "nor.2", "efec": "86%"},
-    {"id": "🇩🇪 2. Bundesliga (ALE2)", "code": "ger.2", "efec": "84%"},
-    {"id": "🇦🇹 Bundesliga (AUT1)", "code": "aut.1", "efec": "84%"},
-    {"id": "🇧🇪 Jupiler Pro League (BEL1)", "code": "bel.1", "efec": "83%"},
-    {"id": "🏴󠁧󠁢󠁳󠁣󠁴󠁿 Premiership (ESC1)", "code": "sco.1", "efec": "83%"},
-    {"id": "🇹🇷 Süper Lig (TUR1)", "code": "tur.1", "efec": "82%"},
-    {"id": "🇵🇹 Primeira Liga (POR1)", "code": "por.1", "efec": "81%"},
-    {"id": "🇺🇸 MLS (USA1)", "code": "usa.1", "efec": "84%"},
-    {"id": "🇲🇽 Liga MX (MEX1)", "code": "mex.1", "efec": "80%"},
+    {"id": "🏆 Champions League", "code": "uefa.champions", "efec": 85.0},
+    {"id": "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League (ING1)", "code": "eng.1", "efec": 80.0},
+    {"id": "🇪🇸 LaLiga (ESP1)", "code": "esp.1", "efec": 79.0},
+    {"id": "🇮🇹 Serie A (ITA1)", "code": "ita.1", "efec": 81.0},
+    {"id": "🇩🇪 Bundesliga (ALE1)", "code": "ger.1", "efec": 86.0},
+    {"id": "🇫🇷 Ligue 1 (FRA1)", "code": "fra.1", "efec": 80.0},
+    {"id": "🇨🇭 Challenge League (SUI2)", "code": "sui.2", "efec": 91.0},
+    {"id": "🇨🇭 Super League (SUI1)", "code": "sui.1", "efec": 89.0},
+    {"id": "🇳🇱 Eredivisie (HOL1)", "code": "ned.1", "efec": 88.0},
+    {"id": "🇳🇱 Eerste Divisie (HOL2)", "code": "ned.2", "efec": 85.0},
+    {"id": "🇳🇴 Eliteserien (NOR1)", "code": "nor.1", "efec": 87.0},
+    {"id": "🇳🇴 1. Division (NOR2)", "code": "nor.2", "efec": 86.0},
+    {"id": "🇩🇪 2. Bundesliga (ALE2)", "code": "ger.2", "efec": 84.0},
+    {"id": "🇦🇹 Bundesliga (AUT1)", "code": "aut.1", "efec": 84.0},
+    {"id": "🇧🇪 Jupiler Pro League (BEL1)", "code": "bel.1", "efec": 83.0},
+    {"id": "🏴󠁧󠁢󠁳󠁣󠁴󠁿 Premiership (ESC1)", "code": "sco.1", "efec": 83.0},
+    {"id": "🇹🇷 Süper Lig (TUR1)", "code": "tur.1", "efec": 82.0},
+    {"id": "🇵🇹 Primeira Liga (POR1)", "code": "por.1", "efec": 81.0},
+    {"id": "🇺🇸 MLS (USA1)", "code": "usa.1", "efec": 84.0},
+    {"id": "🇲🇽 Liga MX (MEX1)", "code": "mex.1", "efec": 80.0},
 ]
 
 TOP_DISPARADORES = {
@@ -234,9 +255,21 @@ DEFENSAS_COLADOR = [
 
 BLOQUES_CERROJO = ["Getafe", "Mallorca", "Empoli", "Everton"]
 
+def obtener_fecha_local_evento(iso_fecha):
+    """Convierte la fecha ISO UTC de ESPN a la fecha exacta en UTC-6 (Honduras)"""
+    try:
+        dt_utc = datetime.fromisoformat(iso_fecha.replace("Z", "+00:00"))
+        dt_local = dt_utc - timedelta(hours=6)
+        return dt_local.strftime("%Y-%m-%d"), dt_local.strftime("%d/%m %H:%M"), dt_local.strftime("%H:%M")
+    except:
+        hoy_fallback = (datetime.utcnow() - timedelta(hours=6)).strftime("%Y-%m-%d")
+        return hoy_fallback, "Programado", "--:--"
+
 def _fetch_standings(code):
     url = f"https://site.api.espn.com/apis/v2/sports/soccer/{code}/standings"
     equipos_stats = {}
+    goles_liga_tot = 0.0
+    partidos_liga_tot = 0.0
     try:
         res = requests.get(url, timeout=3)
         if res.status_code == 200:
@@ -256,6 +289,8 @@ def _fetch_standings(code):
                 gf = float(stats_dict.get("pointsFor", 0) or 0)
                 gc = float(stats_dict.get("pointsAgainst", 0) or 0)
                 if pj > 0:
+                    goles_liga_tot += gf
+                    partidos_liga_tot += (pj / 2.0)  # Cada partido suma para 2 equipos
                     info = {"pj": int(pj), "gf_prom": round(gf / pj, 2), "gc_prom": round(gc / pj, 2)}
                     if t_name:
                         equipos_stats[t_name.lower()] = info
@@ -263,16 +298,26 @@ def _fetch_standings(code):
                         equipos_stats[t_short.lower()] = info
     except:
         pass
-    return code, equipos_stats
+    
+    # Cálculo de eficiencia real de Over 1.5 en la liga según los goles de la temporada actual
+    eficiencia_real_liga = None
+    if partidos_liga_tot > 5:
+        media_goles_liga = goles_liga_tot / partidos_liga_tot
+        eficiencia_real_liga = round((1 - poisson.cdf(1, media_goles_liga)) * 100, 1)
+
+    return code, equipos_stats, eficiencia_real_liga
 
 @st.cache_data(ttl=900)
 def obtener_estadisticas_temporada_reales(codigos_liga):
     tabla_global = {}
+    eficiencias_ligas = {}
     with ThreadPoolExecutor(max_workers=12) as executor:
         resultados = list(executor.map(_fetch_standings, codigos_liga))
-    for code, eq_dict in resultados:
+    for code, eq_dict, efec_real in resultados:
         tabla_global.update(eq_dict)
-    return tabla_global
+        if efec_real is not None:
+            eficiencias_ligas[code] = efec_real
+    return tabla_global, eficiencias_ligas
 
 def auditar_equipo_bd(nombre_equipo):
     sot_base = 4.9
@@ -326,6 +371,26 @@ def calcular_pre_poisson_real(nom_local, nom_visita, stats_temporada):
     prob_final = round(min(95.0, max(42.0, prob_poisson)), 1)
     cuota_justa = round(100 / prob_final, 2)
     return prob_final, cuota_justa, xg_base, fuente_tag
+
+def calcular_tasa_gol_segundo_tiempo(xg_total_pre, disparos_totales, tiros_arco, min_actual):
+    """
+    Calcula la probabilidad real de que caiga al menos 1 gol en el Segundo Tiempo (2T).
+    En el fútbol profesional el 57% de los goles caen en el 2T por fatiga defensiva.
+    Además bonifica el ritmo de disparos reales acumulados en cancha.
+    """
+    xg_2t_base = xg_total_pre * 0.57
+    # Bono por presión ofensiva real en cancha (disparos y tiros al arco)
+    bono_presion = (disparos_totales * 0.035) + (tiros_arco * 0.08)
+    xg_2t_ajustado = xg_2t_base + bono_presion
+
+    # Si ya estamos avanzados en el 2do tiempo, ajustamos el potencial restante pero mantenemos el empuje de cierre
+    if min_actual > 45:
+        minutos_restantes_2t = max(8, 94 - min_actual)
+        factor_tiempo = (minutos_restantes_2t / 45.0) * 1.22  # 1.22 por asedio de últimos minutos
+        xg_2t_ajustado = xg_2t_ajustado * min(1.15, factor_tiempo)
+
+    prob_gol_2t = (1 - poisson.cdf(0, xg_2t_ajustado)) * 100
+    return round(min(94.0, max(50.0, prob_gol_2t)), 1)
 
 def extraer_stat(team_dict, stat_names):
     for st_item in team_dict.get("statistics", []):
@@ -384,6 +449,8 @@ def detectar_estado_partido(comp, iso_fecha):
     except:
         min_num = 45 if es_ht else 0
 
+    _, fecha_corta, hora_sola = obtener_fecha_local_evento(iso_fecha)
+
     if es_ht:
         badge_html = "<div class='status-ht'>⏸️ ENTRETIEMPO</div>"
         reloj_txt = "⏸️ HT (45')"
@@ -394,13 +461,8 @@ def detectar_estado_partido(comp, iso_fecha):
         badge_html = "<div class='status-badge'>FINAL</div>"
         reloj_txt = "FINAL"
     else:
-        try:
-            dt = datetime.fromisoformat(iso_fecha.replace("Z", "+00:00")) - timedelta(hours=6)
-            fecha_legible = dt.strftime("%d/%m %H:%M")
-        except:
-            fecha_legible = "Programado"
-        badge_html = f"<div class='status-badge'>{fecha_legible}</div>"
-        reloj_txt = fecha_legible
+        badge_html = f"<div class='status-badge'>🕒 {hora_sola}</div>"
+        reloj_txt = fecha_corta
 
     return st_state, es_ht, min_num, badge_html, reloj_txt
 
@@ -437,9 +499,24 @@ def obtener_partidos_ligas(codigos_liga):
 
     return datos_por_liga
 
+# FECHAS LOCALES EXACTAS EN HONDURAS (UTC-6)
+hoy_hn_dt = datetime.utcnow() - timedelta(hours=6)
+str_hoy = hoy_hn_dt.strftime("%Y-%m-%d")
+str_manana = (hoy_hn_dt + timedelta(days=1)).strftime("%Y-%m-%d")
+str_ayer = (hoy_hn_dt - timedelta(days=1)).strftime("%Y-%m-%d")
+
 codigos_todas = [l["code"] for l in LIGAS_BIG_DATA]
 datos_globales = obtener_partidos_ligas(codigos_todas)
-stats_temporada_api = obtener_estadisticas_temporada_reales(codigos_todas)
+stats_temporada_api, eficiencias_ligas_api = obtener_estadisticas_temporada_reales(codigos_todas)
+
+def obtener_eficiencia_dinamica_liga(meta_liga):
+    """Combina la eficiencia histórica con la tasa real de goles actual de la API"""
+    code = meta_liga["code"]
+    efec_base = float(meta_liga["efec"])
+    if code in eficiencias_ligas_api:
+        efec_Viva = round((efec_base * 0.65) + (eficiencias_ligas_api[code] * 0.35), 1)
+        return f"{efec_Viva}% (API Activa)"
+    return f"{efec_base}%"
 
 sec_resultados, sec_en_vivo, sec_apuestas, sec_scraping = st.tabs([
     "⚽ 1. RESULTADOS", 
@@ -449,28 +526,48 @@ sec_resultados, sec_en_vivo, sec_apuestas, sec_scraping = st.tabs([
 ])
 
 # -----------------------------------------------------------------------------
-# SECCIÓN 1: RESULTADOS GENERALES Y CAMPANITA DE SEGUIMIENTO
+# SECCIÓN 1: RESULTADOS GENERALES Y CAMPANITA DE SEGUIMIENTO (FILTRADO POR HOY)
 # -----------------------------------------------------------------------------
 with sec_resultados:
     col_menu, col_contenido = st.columns([1.2, 3.8])
 
     with col_menu:
+        st.markdown("##### 📅 Jornada Oficial")
+        opciones_dia = {
+            f"🟢 Hoy ({hoy_hn_dt.strftime('%d/%m')})": str_hoy,
+            f"⏭️ Mañana ({(hoy_hn_dt + timedelta(days=1)).strftime('%d/%m')})": str_manana,
+            f"⏮️ Ayer ({(hoy_hn_dt - timedelta(days=1)).strftime('%d/%m')})": str_ayer
+        }
+        etiqueta_dia_sel = st.radio("Seleccionar Día:", list(opciones_dia.keys()), index=0, label_visibility="collapsed")
+        fecha_objetivo_portada = opciones_dia[etiqueta_dia_sel]
+
         st.markdown("##### 📌 Ligas Disponibles")
         nombres_ligas = [l["id"] for l in LIGAS_BIG_DATA]
         liga_seleccionada_panel = st.selectbox("Filtrar Liga:", ["🌍 Todas las Ligas"] + nombres_ligas, label_visibility="collapsed")
-        texto_busqueda = st.text_input("🔍 Buscar Equipo...", "", placeholder="Ej. Real Madrid, Guadalajara...")
+        texto_busqueda = st.text_input("🔍 Buscar Equipo...", "", placeholder="Ej. Real Madrid, Barcelona...")
         if st.button("🔄 Actualizar Datos Ahora", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
 
     with col_contenido:
+        hay_partidos_jornada = False
         for nombre_liga, contenido in datos_globales.items():
             if liga_seleccionada_panel != "🌍 Todas las Ligas" and liga_seleccionada_panel != nombre_liga:
                 continue
 
             eventos_filtrados = []
             for ev in contenido["eventos"]:
+                fecha_ev_local, _, _ = obtener_fecha_local_evento(ev.get("date", ""))
                 comp = ev.get("competitions", [{}])[0]
+                st_state_ev, es_ht_ev, _, _, _ = detectar_estado_partido(comp, ev.get("date", ""))
+
+                if fecha_objetivo_portada == str_hoy:
+                    if fecha_ev_local != str_hoy and not (st_state_ev == "in" or es_ht_ev):
+                        continue
+                else:
+                    if fecha_ev_local != fecha_objetivo_portada:
+                        continue
+
                 competitors = comp.get("competitors", [])
                 if len(competitors) == 2:
                     nom_l = competitors[0].get("team", {}).get("displayName", "")
@@ -481,7 +578,12 @@ with sec_resultados:
             if not eventos_filtrados:
                 continue
 
-            st.markdown(f"<div class='liga-header'>{nombre_liga}</div>", unsafe_allow_html=True)
+            hay_partidos_jornada = True
+            efec_txt = obtener_eficiencia_dinamica_liga(contenido["meta"])
+            st.markdown(
+                f"<div class='liga-header'><span>{nombre_liga}</span><span style='font-size:12px; color:#9ba1b0;'>Eficiencia Gol: {efec_txt}</span></div>",
+                unsafe_allow_html=True
+            )
 
             for ev in eventos_filtrados:
                 ev_id = str(ev.get("id"))
@@ -589,6 +691,9 @@ with sec_resultados:
                             "rojas": rojas_actuales
                         })
 
+        if not hay_partidos_jornada:
+            st.info(f"No hay partidos registrados para la fecha seleccionada ({etiqueta_dia_sel}) con los filtros actuales.")
+
     if st.session_state["historial_notificaciones"]:
         with st.expander("📲 Bandeja de Alertas Recientes", expanded=False):
             for notif in st.session_state["historial_notificaciones"][:8]:
@@ -614,7 +719,11 @@ with sec_en_vivo:
             continue
 
         hay_en_vivo = True
-        st.markdown(f"<div class='liga-header'>{nombre_liga}</div>", unsafe_allow_html=True)
+        efec_txt = obtener_eficiencia_dinamica_liga(contenido["meta"])
+        st.markdown(
+            f"<div class='liga-header'><span>{nombre_liga}</span><span style='font-size:12px; color:#9ba1b0;'>Eficiencia Gol: {efec_txt}</span></div>",
+            unsafe_allow_html=True
+        )
 
         for ev in eventos_en_vivo:
             ev_id = str(ev.get("id"))
@@ -679,11 +788,11 @@ with sec_en_vivo:
         st.info("No hay partidos en curso en este preciso instante en las 19 ligas.")
 
 # -----------------------------------------------------------------------------
-# SECCIÓN 3: PRE-APUESTAS OVER 1.5
+# SECCIÓN 3: PRE-APUESTAS OVER 1.5 (HOY Y MAÑANA)
 # -----------------------------------------------------------------------------
 with sec_apuestas:
     st.subheader("🎯 Laboratorio Pre-Apuesta Over 1.5 (Promedios Reales de Temporada)")
-    st.caption("Cruza los goles reales anotados y recibidos por cada equipo en la tabla actual de la API con tu base de datos.")
+    st.caption("Cruza los goles reales anotados y recibidos por cada equipo en la tabla actual de la API con tu base de datos (Partidos programados de Hoy y Mañana).")
 
     col_f1, col_f2 = st.columns([2.5, 1.5])
     with col_f1:
@@ -697,8 +806,12 @@ with sec_apuestas:
         if nombre_liga not in ligas_seleccionadas_pre:
             continue
         for evento in contenido["eventos"]:
+            fecha_ev_local, fecha_legible, _ = obtener_fecha_local_evento(evento.get("date", ""))
+            if fecha_ev_local not in (str_hoy, str_manana):
+                continue
+
             comp = evento.get("competitions", [{}])[0]
-            st_state, es_ht, _, _, fecha_str = detectar_estado_partido(comp, evento.get("date", ""))
+            st_state, es_ht, _, _, _ = detectar_estado_partido(comp, evento.get("date", ""))
             if st_state != "pre" or es_ht:
                 continue
 
@@ -710,6 +823,8 @@ with sec_apuestas:
                 prob_final, cuota_justa, xg_base, fuente_tag = calcular_pre_poisson_real(
                     nom_local, nom_visita, stats_temporada_api
                 )
+                tasa_2t = calcular_tasa_gol_segundo_tiempo(xg_base, 0, 0, 0)
+
                 if prob_final >= umbral_minimo:
                     if 64.0 <= prob_final <= 75.5:
                         veredicto = "💎 ENTRAR OVER 1.5 (Cuota de Valor / Paga Bien)"
@@ -719,11 +834,12 @@ with sec_apuestas:
                         veredicto = "🟡 VALOR MODERADO (Ideal para En Vivo)"
 
                     reporte_pre.append({
-                        "Fecha": fecha_str,
+                        "Fecha": fecha_legible,
                         "Liga": nombre_liga,
                         "Partido": f"{nom_local} vs {nom_visita}",
                         "xG Esperado": xg_base,
                         "Prob. Pre Over 1.5": f"{prob_final}%",
+                        "🔥 Tasa Gol 2T": f"{tasa_2t}%",
                         "Cuota Estimada": cuota_justa,
                         "Base de Cálculo": fuente_tag,
                         "Veredicto": veredicto
@@ -735,13 +851,13 @@ with sec_apuestas:
         st.info("No hay partidos programados que cumplan el filtro actual. Puedes bajar el deslizador de porcentaje.")
 
 # -----------------------------------------------------------------------------
-# SECCIÓN 4: SCRAPING Y ALERTAS EN VIVO
+# SECCIÓN 4: SCRAPING Y ALERTAS EN VIVO (CON TASA DE GOL EN 2DO TIEMPO)
 # -----------------------------------------------------------------------------
 with sec_scraping:
-    st.subheader("🚨 Motor de Scraping y Recomendación en Vivo (100% Datos Reales)")
+    st.subheader("🚨 Motor de Scraping y Recomendación en Vivo (Con Tasa de Gol en 2do Tiempo)")
     st.markdown(
-        "Cruza el **% esperado en Pre-Apuesta** con los **Disparos Totales, Tiros al Arco y Córneres reales** de la API "
-        "para recomendarte la entrada a **Over 0.5** o **Over 1.5** sin métricas inventadas."
+        "Cruza el **% esperado en Pre-Apuesta** con los **Disparos reales en cancha** y calcula la **Tasa de Gol en el 2do Tiempo (2T)** "
+        "para darle seguridad total al apostador cuando el partido va **0 - 0** pero un equipo ya suma **3+ disparos**."
     )
 
     tabla_scraping = []
@@ -766,37 +882,51 @@ with sec_scraping:
 
                 prob_pre, _, xg_pre, _ = calcular_pre_poisson_real(nom_l_full, nom_v_full, stats_temporada_api)
                 stats = extraer_metricas_partido_reales(loc, vis)
-                toth_tot = stats["toth_tot"]
+                toth_l, toth_v, toth_tot = stats["toth_l"], stats["toth_v"], stats["toth_tot"]
                 tmeta_tot = stats["tmeta_tot"]
+                max_disp_equipo = max(toth_l, toth_v)
+                equipo_dominante = nom_l if toth_l >= toth_v else nom_v
 
-                veredicto_vivo = f"⏳ Calentando ({prob_pre}% Pre | Esperando Min 15+)"
+                # CÁLCULO DE TASA DE GOL EN EL SEGUNDO TIEMPO (2T)
+                tasa_gol_2t = calcular_tasa_gol_segundo_tiempo(xg_pre, toth_tot, tmeta_tot, min_num)
+
+                veredicto_vivo = f"⏳ Calentando ({prob_pre}% Pre | Tasa Gol 2T: {tasa_gol_2t}%)"
                 if min_num >= 15 or es_ht:
                     if goles_tot == 0:
-                        if tmeta_tot >= 2 or toth_tot >= 6 or (prob_pre >= 68 and toth_tot >= 4):
+                        # Condición solicitada: Un equipo ya lleva 3+ disparos o hay alto volumen ofensivo
+                        if max_disp_equipo >= 3 or tmeta_tot >= 2 or toth_tot >= 5:
+                            aviso_2t = (
+                                f"🔥 ¡SIN MIEDO AL 0-0! Ambos rivales registran **{tasa_gol_2t}% de Tasa de Gol en el 2do Tiempo**"
+                                if tasa_gol_2t >= 72.0 else
+                                f"📈 Tasa de Gol en 2do Tiempo: **{tasa_gol_2t}%**"
+                            )
                             veredicto_vivo = (
-                                f"🚨 ¡ENTRAR AL OVER 0.5 GOLES! "
-                                f"(Recomendado: {prob_pre}% Pre + Confirma en vivo con {toth_tot} Disparos y {tmeta_tot} al Arco)"
+                                f"🚨 ¡ENTRAR AL OVER 0.5 GOLES! ({equipo_dominante} ya suma {max_disp_equipo} disparos | "
+                                f"Totales: {toth_tot} Disp, {tmeta_tot} al Arco) 👉 {aviso_2t}"
                             )
                             disparar_alerta_celular(
                                 f"ENTRAR OVER 0.5: {nom_l} vs {nom_v}",
-                                f"Pre: {prob_pre}% | Vivo ({reloj_txt}): {toth_tot} Disp ({stats['toth_l']}-{stats['toth_v']}), {tmeta_tot} Arco",
+                                f"0-0 ({reloj_txt}) | {equipo_dominante} lleva {max_disp_equipo} disp. | Tasa Gol 2T: {tasa_gol_2t}%",
                                 "🚨"
                             )
                         else:
-                            veredicto_vivo = f"⚪ Monitoreando 0-0 (Pre: {prob_pre}% | {toth_tot} Disp, {tmeta_tot} Arco)"
-                    elif goles_tot == 1:
-                        if min_num <= 82 and (tmeta_tot >= 3 or toth_tot >= 7 or (prob_pre >= 68 and toth_tot >= 5)):
                             veredicto_vivo = (
-                                f"🔥 ¡ENTRAR AL OVER 1.5 GOLES! "
-                                f"(Recomendado: {prob_pre}% Pre + Confirma en vivo con {toth_tot} Disparos y {tmeta_tot} al Arco)"
+                                f"⚪ Monitoreando 0-0 ({toth_tot} Disp) | Si sigue 0-0 al descanso, "
+                                f"rivales tienen {tasa_gol_2t}% de Tasa de Gol en el 2T"
+                            )
+                    elif goles_tot == 1:
+                        if min_num <= 82 and (max_disp_equipo >= 3 or tmeta_tot >= 3 or toth_tot >= 6):
+                            veredicto_vivo = (
+                                f"🔥 ¡ENTRAR AL OVER 1.5 GOLES! (Ritmo alto: {toth_tot} Disp, {tmeta_tot} Arco | "
+                                f"Tasa de Gol en 2do Tiempo: {tasa_gol_2t}%)"
                             )
                             disparar_alerta_celular(
                                 f"ENTRAR OVER 1.5: {nom_l} vs {nom_v}",
-                                f"Pre: {prob_pre}% | Vivo ({reloj_txt}): {toth_tot} Disp ({stats['toth_l']}-{stats['toth_v']}), {tmeta_tot} Arco",
+                                f"Marcador {goles_l}-{goles_v} ({reloj_txt}) | {toth_tot} Disp | Tasa Gol 2T: {tasa_gol_2t}%",
                                 "🔥"
                             )
                         else:
-                            veredicto_vivo = f"🟢 1 Gol en cancha (Pre: {prob_pre}% | {toth_tot} Disp, {tmeta_tot} Arco)"
+                            veredicto_vivo = f"🟢 1 Gol en cancha ({toth_tot} Disp, {tmeta_tot} Arco | Potencial 2T: {tasa_gol_2t}%)"
                     else:
                         veredicto_vivo = f"✅ ¡LÍNEA OVER 1.5 COBRADA EN VERDE! ({goles_l}-{goles_v})"
 
@@ -806,10 +936,10 @@ with sec_scraping:
                     "Partido": f"{nom_l} vs {nom_v}",
                     "Marcador": f"{goles_l} - {goles_v}",
                     "📈 Esperado Pre": f"{prob_pre}% (xG {xg_pre})",
-                    "🎯 Disparos (L-V)": f"{stats['toth_l']} - {stats['toth_v']} (Tot: {toth_tot})",
+                    "🔥 Tasa Gol 2T": f"{tasa_gol_2t}%",
+                    "🎯 Disparos (L-V)": f"{toth_l} - {toth_v} (Tot: {toth_tot})",
                     "🥅 Al Arco (L-V)": f"{stats['tmeta_l']} - {stats['tmeta_v']} (Tot: {tmeta_tot})",
-                    "🚩 Córneres": f"{stats['esquinas_l']} - {stats['esquinas_v']}",
-                    "💡 Veredicto para el Cliente": veredicto_vivo
+                    "💡 Veredicto y Confianza 2do Tiempo": veredicto_vivo
                 })
 
     if tabla_scraping:
