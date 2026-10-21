@@ -352,7 +352,6 @@ with sec_futbol:
                     gol_v = int(vis.get("score", 0) or 0)
                     nombre_cruce = f"{nom_l} vs {nom_v}"
 
-                    # EXTRACCIÓN AISLADA Y EXCLUSIVA DE DETALLES DE ESTE PARTIDO
                     detalles_partido = comp.get("details", [])
                     rojas_actuales = sum(1 for d in detalles_partido if d.get("redCard", False))
 
@@ -382,7 +381,6 @@ with sec_futbol:
                         </div>
                         """, unsafe_allow_html=True)
 
-                        # DESPLEGABLE CON FILTRO ÚNICO POR CÓDIGO DE EVENTO
                         with st.expander(f"📊 Resumen Clave ({nombre_cruce})", expanded=False):
                             eventos_texto = []
                             for d in detalles_partido:
@@ -521,11 +519,11 @@ with sec_apuestas:
                 st.info("Sin partidos pendientes.")
 
 # -----------------------------------------------------------------------------
-# SECCIÓN 3: SCRAPING EN VIVO
+# SECCIÓN 3: SCRAPING EN VIVO (FILTRADO ROBUSTO: INCLUYE MEDIO TIEMPO)
 # -----------------------------------------------------------------------------
 with sec_live:
     st.subheader("🚨 Scraping En Vivo (Minuto 18+)")
-    st.markdown("⚠️ *Muestra exclusivamente partidos **En Juego**. El veredicto calcula en tiempo real si debes entrar a **Over 0.5** o **Over 1.5** según los Tiros a Meta.*")
+    st.markdown("⚠️ *Muestra todos los partidos **En Juego** y en **Medio Tiempo (HT)** con estadísticas oficiales de ESPN.*")
     activar_scraping_2min = st.checkbox("🔄 Actualizar cada 2 minutos", value=True)
 
     codigos_todas = [l["espn"] for l in LIGAS_BIG_DATA]
@@ -536,11 +534,13 @@ with sec_live:
         for evento in contenido["eventos"]:
             comp = evento.get("competitions", [{}])[0]
             status_type = comp.get("status", {}).get("type", {}).get("state", "pre")
+            short_detail = comp.get("status", {}).get("type", {}).get("shortDetail", "")
             
-            if status_type != "in":
+            # CAPTURAR TANTO PARTIDOS EN JUEGO COMO LOS QUE ESTÁN EN MEDIO TIEMPO (HT)
+            if status_type not in ["in"] and "HT" not in short_detail and "Medio" not in short_detail:
                 continue
 
-            reloj = comp.get("status", {}).get("displayClock", "0'")
+            reloj = comp.get("status", {}).get("displayClock", "HT" if ("HT" in short_detail or "Medio" in short_detail) else "45'")
             competitors = comp.get("competitors", [])
             if len(competitors) == 2:
                 local = competitors[0]
@@ -555,42 +555,47 @@ with sec_live:
                 tmeta_v = int(extraer_stat_espn(visita, ["shotsOnTarget"]) or 0)
                 tmeta_total = tmeta_l + tmeta_v
 
+                pos_l = extraer_stat_espn(local, ["possessionPct"])
+                pos_v = extraer_stat_espn(visita, ["possessionPct"])
+                esquinas_l = extraer_stat_espn(local, ["wonCorners", "corners"])
+                esquinas_v = extraer_stat_espn(visita, ["wonCorners", "corners"])
+
                 min_num = 0
                 try:
                     min_num = int(reloj.replace("'", "").split("+")[0])
                 except:
-                    min_num = 0
+                    min_num = 45 if ("HT" in reloj or "Medio" in reloj) else 0
 
                 veredicto_vivo = "⏳ Esperando Minuto 18+"
-                if min_num >= 18:
+                if min_num >= 18 or "HT" in reloj or "Medio" in reloj:
                     if goles_tot == 0:
                         if tmeta_total >= 3:
                             veredicto_vivo = "🚨 ¡ENTRAR AL OVER 0.5 GOLES (Confirma Asedio)!"
-                            disparar_alerta_celular(f"MERCADO 0.5 ({nom_l} vs {nom_v})", f"Min {reloj} (0-0) | Tiros a meta: {tmeta_total} -> ¡Entrar Over 0.5!", "🚨")
                         else:
-                            veredicto_vivo = "⚪ Esperando más volumen de Tiros a Meta (< 3)"
+                            veredicto_vivo = "⚪ Esperando volumen de Tiros a Meta"
                     elif goles_tot == 1:
-                        if tmeta_total >= 4 and min_num <= 78:
+                        if tmeta_total >= 4:
                             veredicto_vivo = "🔥 ¡ENTRAR AL OVER 1.5 GOLES (Partido Roto)!"
-                            disparar_alerta_celular(f"MERCADO 1.5 ({nom_l} vs {nom_v})", f"Min {reloj} ({goles_l}-{goles_v}) | Tiros a meta: {tmeta_total} -> ¡Entrar Over 1.5!", "🔥")
                         else:
                             veredicto_vivo = "🟢 Partido con 1 gol (Monitoreando ritmo)"
                     else:
                         veredicto_vivo = "✅ ¡Over cumplido con éxito!"
 
                 tabla_scraping.append({
-                    "Reloj": f"🔴 {reloj}",
+                    "Reloj": f"⏸️ {reloj}" if ("HT" in reloj or "Medio" in reloj) else f"🔴 {reloj}",
                     "Liga": nombre_liga,
                     "Partido": f"{nom_l} vs {nom_v}",
                     "Marcador": f"{goles_l} - {goles_v}",
-                    "🎯 Tiros a Meta": tmeta_total,
-                    "💡 Veredicto y Recomendación": veredicto_vivo
+                    "🎯 Tiros a Meta": f"{tmeta_l} - {tmeta_v} (Tot: {tmeta_total})",
+                    "📊 Posesión": f"{nom_l} ({pos_l}%) - {nom_v} ({pos_v}%)",
+                    "🚩 Córneres": f"{esquinas_l} - {esquinas_v}",
+                    "💡 Recomendación": veredicto_vivo
                 })
 
     if tabla_scraping:
         st.dataframe(pd.DataFrame(tabla_scraping), use_container_width=True, hide_index=True)
     else:
-        st.info("No hay partidos en juego en este momento en las 19 ligas monitoreadas.")
+        st.info("No hay partidos en juego ni en medio tiempo en este momento en las 19 ligas monitoreadas.")
 
     if activar_scraping_2min:
         time.sleep(120)
