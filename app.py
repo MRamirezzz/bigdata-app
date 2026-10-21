@@ -165,7 +165,7 @@ st.markdown(
 col_master1, col_master2, col_master3 = st.columns([2.5, 1, 1])
 with col_master1:
     ahora_hn_str = (datetime.utcnow() - timedelta(hours=6)).strftime("%d/%m/%Y %H:%M")
-    st.caption(f"💡 Central de Inteligencia y Auditoría Real (ESPN + SofaScore) | 🕒 Hora Oficial: **{ahora_hn_str}**")
+    st.caption(f"💡 Central de Inteligencia y Auditoría Dual MRFUTBOL | 🕒 Hora Oficial: **{ahora_hn_str}**")
 with col_master2:
     master_sound = st.toggle("🔔 Alertas Activas", value=True, key="master_sound_key")
 with col_master3:
@@ -302,11 +302,11 @@ def obtener_fecha_local_evento(iso_fecha):
         return "1970-01-01", "Programado", "--:--", datetime(1970, 1, 1)
 
 # =============================================================================
-# 2DA FUENTE REAL: SCRAPING DIRECTO A SOFASCORE API (COMO SCRAPERFC)
+# 2DA FUENTE DE AUDITORÍA EN VIVO (MARCA BLANCA MRFUTBOL)
 # =============================================================================
-def _fetch_sofascore_event_stats(ss_id):
-    url_st = f"https://api.sofascore.com/api/v1/event/{ss_id}/statistics"
-    stats_ss = {
+def _fetch_secondary_event_stats(sec_id):
+    url_st = f"https://api.sofascore.com/api/v1/event/{sec_id}/statistics"
+    stats_sec = {
         "toth_l": 0, "toth_v": 0, "toth_tot": 0,
         "tmeta_l": 0, "tmeta_v": 0, "tmeta_tot": 0,
         "esquinas_l": 0, "esquinas_v": 0,
@@ -324,124 +324,116 @@ def _fetch_sofascore_event_stats(ss_id):
                     a_val = str(item.get("away", "0")).replace("%", "").strip()
                     try:
                         if name == "total shots":
-                            stats_ss["toth_l"] = int(float(h_val))
-                            stats_ss["toth_v"] = int(float(a_val))
-                            stats_ss["toth_tot"] = stats_ss["toth_l"] + stats_ss["toth_v"]
+                            stats_sec["toth_l"] = int(float(h_val))
+                            stats_sec["toth_v"] = int(float(a_val))
+                            stats_sec["toth_tot"] = stats_sec["toth_l"] + stats_sec["toth_v"]
                         elif name in ("shots on target", "shots on goal"):
-                            stats_ss["tmeta_l"] = int(float(h_val))
-                            stats_ss["tmeta_v"] = int(float(a_val))
-                            stats_ss["tmeta_tot"] = stats_ss["tmeta_l"] + stats_ss["tmeta_v"]
+                            stats_sec["tmeta_l"] = int(float(h_val))
+                            stats_sec["tmeta_v"] = int(float(a_val))
+                            stats_sec["tmeta_tot"] = stats_sec["tmeta_l"] + stats_sec["tmeta_v"]
                         elif name == "corner kicks":
-                            stats_ss["esquinas_l"] = int(float(h_val))
-                            stats_ss["esquinas_v"] = int(float(a_val))
+                            stats_sec["esquinas_l"] = int(float(h_val))
+                            stats_sec["esquinas_v"] = int(float(a_val))
                         elif name == "expected goals":
-                            stats_ss["xg_l"] = float(h_val)
-                            stats_ss["xg_v"] = float(a_val)
+                            stats_sec["xg_l"] = float(h_val)
+                            stats_sec["xg_v"] = float(a_val)
                         elif name == "big chances":
-                            stats_ss["big_chances_tot"] = int(float(h_val)) + int(float(a_val))
+                            stats_sec["big_chances_tot"] = int(float(h_val)) + int(float(a_val))
                     except:
                         pass
-            return ss_id, stats_ss
+            return sec_id, stats_sec
     except:
         pass
-    return ss_id, None
+    return sec_id, None
 
 @st.cache_data(ttl=25)
-def obtener_datos_en_vivo_sofascore():
-    """
-    Consulta los partidos en vivo reales de SofaScore y extrae sus métricas detalladas.
-    Si SofaScore responde, sirve como 2da fuente real de validación.
-    """
+def obtener_datos_segunda_fuente():
     url_live = "https://api.sofascore.com/api/v1/sport/football/events/live"
-    partidos_ss = []
+    partidos_sec = []
     try:
         res = requests.get(url_live, headers=HEADERS_BROWSER, timeout=3)
         if res.status_code == 200:
-            eventos_ss = res.json().get("events", [])
+            eventos_sec = res.json().get("events", [])
             ids_para_stats = []
             mapa_basico = {}
-            for ev in eventos_ss:
-                ss_id = ev.get("id")
+            for ev in eventos_sec:
+                sec_id = ev.get("id")
                 h_name = ev.get("homeTeam", {}).get("name", "")
                 a_name = ev.get("awayTeam", {}).get("name", "")
                 h_score = ev.get("homeScore", {}).get("current", 0)
                 a_score = ev.get("awayScore", {}).get("current", 0)
-                if ss_id and h_name and a_name:
-                    ids_para_stats.append(ss_id)
-                    mapa_basico[ss_id] = {
-                        "ss_id": ss_id,
+                if sec_id and h_name and a_name:
+                    ids_para_stats.append(sec_id)
+                    mapa_basico[sec_id] = {
+                        "sec_id": sec_id,
                         "home": h_name,
                         "away": a_name,
                         "gol_l": int(h_score or 0),
                         "gol_v": int(a_score or 0),
                         "stats": None
                     }
-            # Descargamos estadísticas de los partidos en vivo en paralelo
             if ids_para_stats:
                 with ThreadPoolExecutor(max_workers=10) as executor:
-                    resultados_st = list(executor.map(_fetch_sofascore_event_stats, ids_para_stats[:45]))
+                    resultados_st = list(executor.map(_fetch_secondary_event_stats, ids_para_stats[:45]))
                 for s_id, st_dict in resultados_st:
                     if s_id in mapa_basico and st_dict:
                         mapa_basico[s_id]["stats"] = st_dict
-            partidos_ss = list(mapa_basico.values())
+            partidos_sec = list(mapa_basico.values())
     except:
         pass
-    return partidos_ss
+    return partidos_sec
 
-def cruzar_validacion_real_sofascore(nom_l, nom_v, stats_espn, lista_sofascore):
+def cruzar_validacion_doble_fuente(nom_l, nom_v, stats_f1, lista_f2):
     """
-    Cruza los datos reales de ESPN con los datos reales extraídos de SofaScore.
-    CERO SIMULACIÓN: Si SofaScore tiene el partido, compara tiro por tiro.
-    Si SofaScore no devolvió ese partido, informa con total honestidad.
+    Cruza los datos reales de la Fuente 1 con la Fuente 2 en marca blanca MRFUTBOL.
     """
-    match_ss = None
-    for item in lista_sofascore:
+    match_f2 = None
+    for item in lista_f2:
         if nombres_coinciden(nom_l, item["home"]) and nombres_coinciden(nom_v, item["away"]):
-            match_ss = item
+            match_f2 = item
             break
 
-    if not match_ss:
+    if not match_f2:
         return (
-            "📡 1ra Fuente Oficial (ESPN) | SofaScore sin cruce en vivo",
+            "📡 Radar Principal MRFUTBOL Activo",
             "ESTÁNDAR (1 Fuente)",
-            stats_espn,
+            stats_f1,
             None
         )
 
-    st_ss = match_ss.get("stats")
-    if not st_ss:
+    st_f2 = match_f2.get("stats")
+    if not st_f2:
         return (
-            "🔗 Cruce Confirmado en SofaScore (Marcador Validado)",
+            "🔗 Doble Fuente Conectada (Marcador Validado)",
             "MEDIA (Marcador Dual)",
-            stats_espn,
-            match_ss
+            stats_f1,
+            match_f2
         )
 
-    # Si ESPN viene en 0 en alguna liga secundaria pero SofaScore sí tiene disparos reales, enriquecemos con SofaScore
-    stats_combinadas = dict(stats_espn)
-    if stats_combinadas["toth_tot"] == 0 and st_ss["toth_tot"] > 0:
-        stats_combinadas["toth_l"] = st_ss["toth_l"]
-        stats_combinadas["toth_v"] = st_ss["toth_v"]
-        stats_combinadas["toth_tot"] = st_ss["toth_tot"]
-        stats_combinadas["tmeta_l"] = st_ss["tmeta_l"]
-        stats_combinadas["tmeta_v"] = st_ss["tmeta_v"]
-        stats_combinadas["tmeta_tot"] = st_ss["tmeta_tot"]
-        stats_combinadas["tfuera_l"] = max(0, st_ss["toth_l"] - st_ss["tmeta_l"])
-        stats_combinadas["tfuera_v"] = max(0, st_ss["toth_v"] - st_ss["tmeta_v"])
+    stats_combinadas = dict(stats_f1)
+    if stats_combinadas["toth_tot"] == 0 and st_f2["toth_tot"] > 0:
+        stats_combinadas["toth_l"] = st_f2["toth_l"]
+        stats_combinadas["toth_v"] = st_f2["toth_v"]
+        stats_combinadas["toth_tot"] = st_f2["toth_tot"]
+        stats_combinadas["tmeta_l"] = st_f2["tmeta_l"]
+        stats_combinadas["tmeta_v"] = st_f2["tmeta_v"]
+        stats_combinadas["tmeta_tot"] = st_f2["tmeta_tot"]
+        stats_combinadas["tfuera_l"] = max(0, st_f2["toth_l"] - st_f2["tmeta_l"])
+        stats_combinadas["tfuera_v"] = max(0, st_f2["toth_v"] - st_f2["tmeta_v"])
         stats_combinadas["tfuera_tot"] = stats_combinadas["tfuera_l"] + stats_combinadas["tfuera_v"]
 
-    diff_shots = abs(stats_espn["toth_tot"] - st_ss["toth_tot"])
-    xg_ss_tot = round(st_ss["xg_l"] + st_ss["xg_v"], 2)
-    extra_xg = f" | xG Vivo SS: {xg_ss_tot}" if xg_ss_tot > 0 else ""
+    diff_shots = abs(stats_f1["toth_tot"] - st_f2["toth_tot"])
+    xg_f2_tot = round(st_f2["xg_l"] + st_f2["xg_v"], 2)
+    extra_xg = f" | xG Vivo: {xg_f2_tot}" if xg_f2_tot > 0 else ""
 
     if diff_shots <= 2:
-        sello = f"✅ Validado Dual Real (ESPN: {stats_espn['toth_tot']} Disp | SofaScore: {st_ss['toth_tot']} Disp{extra_xg})"
+        sello = f"✅ Doble Validación OK (F1: {stats_f1['toth_tot']} Disp | F2: {st_f2['toth_tot']} Disp{extra_xg})"
         nivel = "BLINDADA (Doble Confirmación)"
     else:
-        sello = f"⚖️ Discrepancia Detectada (ESPN: {stats_espn['toth_tot']} Disp vs SofaScore: {st_ss['toth_tot']} Disp{extra_xg})"
-        nivel = "AUDITADA (Usando Mayor Volumen)"
+        sello = f"⚖️ Línea Ajustada (F1: {stats_f1['toth_tot']} Disp vs F2: {st_f2['toth_tot']} Disp{extra_xg})"
+        nivel = "AUDITADA (Mayor Volumen)"
 
-    return sello, nivel, stats_combinadas, st_ss
+    return sello, nivel, stats_combinadas, st_f2
 
 def _fetch_standings(code):
     url = f"https://site.api.espn.com/apis/v2/sports/soccer/{code}/standings"
@@ -535,11 +527,11 @@ def calcular_pre_poisson_real(nom_local, nom_visita, stats_temporada):
     if real_l and real_v:
         xg_real_api = ((real_l["gf_prom"] + real_v["gc_prom"]) / 2.0) * 1.08 + ((real_v["gf_prom"] + real_l["gc_prom"]) / 2.0)
         xg_base = round((xg_real_api * 0.70) + (xg_ini * 0.30), 2)
-        fuente_tag = f"✅ Tablas Oficiales ({real_l['gf_prom']} GF / {real_v['gf_prom']} GF)"
+        fuente_tag = f"✅ Estadística Oficial ({real_l['gf_prom']} GF / {real_v['gf_prom']} GF)"
     else:
         bono_col = 0.30 if (col_l or col_v) else 0.0
         xg_base = round(xg_ini + bono_col, 2)
-        fuente_tag = f"📊 Base BigData ({tag_l} vs {tag_v})"
+        fuente_tag = f"📊 Base MRFUTBOL ({tag_l} vs {tag_v})"
 
     if cer_l or cer_v:
         xg_base = max(1.25, round(xg_base - 0.30, 2))
@@ -719,21 +711,21 @@ str_manana = (hoy_hn_dt + timedelta(days=1)).strftime("%Y-%m-%d")
 codigos_todas = [l["code"] for l in LIGAS_BIG_DATA]
 datos_globales = obtener_partidos_ligas(codigos_todas)
 stats_temporada_api, eficiencias_ligas_api = obtener_estadisticas_temporada_reales(codigos_todas)
-lista_vivo_sofascore = obtener_datos_en_vivo_sofascore()
+lista_segunda_fuente = obtener_datos_segunda_fuente()
 
 def obtener_eficiencia_dinamica_liga(meta_liga):
     code = meta_liga["code"]
     efec_base = float(meta_liga["efec"])
     if code in eficiencias_ligas_api:
         efec_viva = round((efec_base * 0.65) + (eficiencias_ligas_api[code] * 0.35), 1)
-        return f"{efec_viva}% (API Activa)"
+        return f"{efec_viva}% (Activa)"
     return f"{efec_base}%"
 
 sec_resultados, sec_en_vivo, sec_apuestas, sec_scraping = st.tabs([
     "⚽ 1. CARTELERA DE HOY", 
     "🔴 2. PARTIDOS EN VIVO", 
     "🎯 3. PRE-APUESTAS Y REPORTES", 
-    "🚨 4. SCRAPING Y VALIDACIÓN DUAL"
+    "🚨 4. SCRAPING Y AUDITORÍA DUAL"
 ])
 
 # -----------------------------------------------------------------------------
@@ -761,7 +753,7 @@ with sec_resultados:
             st.cache_data.clear()
             st.rerun()
 
-        st.caption(f"📡 Partidos en vivo detectados en 2da Fuente (SofaScore): **{len(lista_vivo_sofascore)}**")
+        st.caption(f"📡 Eventos en vivo respaldados por 2da Fuente: **{len(lista_segunda_fuente)}**")
 
     with col_contenido:
         hay_partidos_jornada = False
@@ -825,7 +817,7 @@ with sec_resultados:
                 detalles_partido = comp.get("details", [])
                 rojas_actuales = sum(1 for d in detalles_partido if d.get("redCard", False))
                 stats_raw = extraer_metricas_partido_reales(loc, vis)
-                sello_val, nivel_val, stats, _ = cruzar_validacion_real_sofascore(nom_l_full, nom_v_full, stats_raw, lista_vivo_sofascore)
+                sello_val, nivel_val, stats, _ = cruzar_validacion_doble_fuente(nom_l_full, nom_v_full, stats_raw, lista_segunda_fuente)
 
                 col_card, col_bell = st.columns([10, 2])
                 with col_card:
@@ -844,7 +836,7 @@ with sec_resultados:
 
                     with st.expander(f"📊 Resumen Clave ({nombre_cruce})", expanded=False):
                         if st_state == "in" or es_ht:
-                            st.caption(f"🛡️ **Auditoría en Vivo:** {sello_val} | Nivel: **{nivel_val}**")
+                            st.caption(f"🛡️ **Auditoría MRFUTBOL:** {sello_val} | Confianza: **{nivel_val}**")
                         df_resumen = pd.DataFrame([
                             {"Métrica Oficial": "🎯 Disparos Totales", nom_l: stats["toth_l"], nom_v: stats["toth_v"]},
                             {"Métrica Oficial": "🥅 Tiros al Arco", nom_l: stats["tmeta_l"], nom_v: stats["tmeta_v"]},
@@ -921,11 +913,11 @@ with sec_resultados:
                 st.info(notif)
 
 # -----------------------------------------------------------------------------
-# SECCIÓN 2: PARTIDOS EN VIVO CON AUDITORÍA REAL (ESPN + SOFASCORE)
+# SECCIÓN 2: PARTIDOS EN VIVO CON AUDITORÍA CRUZADA MRFUTBOL
 # -----------------------------------------------------------------------------
 with sec_en_vivo:
-    st.subheader("🔴 Partidos en Vivo y Auditoría Cruzada Real (ESPN vs SofaScore)")
-    st.caption("Contrasta en tiempo real las métricas de ESPN con los datos extraídos de la API de SofaScore.")
+    st.subheader("🔴 Partidos en Vivo y Auditoría Cruzada MRFUTBOL")
+    st.caption("Contrasta en tiempo real las métricas de cancha mediante nuestro sistema de Doble Fuente Oficial.")
     
     hay_en_vivo = False
     for nombre_liga, contenido in datos_globales.items():
@@ -966,7 +958,7 @@ with sec_en_vivo:
 
             _, _, _, badge_vivo, _ = detectar_estado_partido(comp, ev.get("date", ""))
             stats_raw = extraer_metricas_partido_reales(loc, vis)
-            sello_val, nivel_val, stats, st_ss = cruzar_validacion_real_sofascore(nom_l_full, nom_v_full, stats_raw, lista_vivo_sofascore)
+            sello_val, nivel_val, stats, _ = cruzar_validacion_doble_fuente(nom_l_full, nom_v_full, stats_raw, lista_segunda_fuente)
 
             st.markdown(f"""
             <div class="match-card">
@@ -1017,7 +1009,7 @@ with sec_en_vivo:
 # -----------------------------------------------------------------------------
 with sec_apuestas:
     st.subheader("🎯 Laboratorio Pre-Apuesta Over 1.5 y Generador de Reportes VIP")
-    st.caption("Cruza los goles reales de la tabla oficial de ESPN con tu base de datos y exporta el Boletín Oficial para tus clientes.")
+    st.caption("Cruza los goles reales de la tabla oficial de temporada con la base de datos MRFUTBOL y exporta el Boletín Oficial para tus clientes.")
 
     col_f1, col_f2 = st.columns([2.5, 1.5])
     with col_f1:
@@ -1066,7 +1058,7 @@ with sec_apuestas:
                         "Prob. Pre Over 1.5": f"{prob_final}%",
                         "🔥 Tasa Gol 2T": f"{tasa_2t}%",
                         "Cuota Justa": cuota_justa,
-                        "Fuente de Validación": fuente_tag,
+                        "Respaldo": fuente_tag,
                         "Veredicto": veredicto
                     })
 
@@ -1074,7 +1066,6 @@ with sec_apuestas:
         df_pre = pd.DataFrame(reporte_pre)
         st.dataframe(df_pre, use_container_width=True, hide_index=True)
 
-        # BOTONES REALES DE EXPORTACIÓN DE REPORTES (BOLETÍN PDF/HTML Y CSV)
         col_rep1, col_rep2 = st.columns(2)
         with col_rep1:
             html_boletin_pre = generar_boletin_html_imprimible(
@@ -1101,12 +1092,12 @@ with sec_apuestas:
         st.info("No hay partidos programados que cumplan el filtro actual. Puedes bajar el deslizador de porcentaje.")
 
 # -----------------------------------------------------------------------------
-# SECCIÓN 4: SCRAPING EN VIVO, TASA 2DO TIEMPO, VALIDACIÓN DUAL Y REPORTE
+# SECCIÓN 4: SCRAPING EN VIVO Y AUDITORÍA DUAL MRFUTBOL (SIN NOMBRES EXTERNOS)
 # -----------------------------------------------------------------------------
 with sec_scraping:
-    st.subheader("🚨 Motor de Scraping en Vivo + Validación Dual Real (ESPN + SofaScore)")
+    st.subheader("🚨 Motor de Scraping en Vivo y Auditoría Dual MRFUTBOL")
     st.markdown(
-        "Cruza el **% esperado en Pre-Apuesta** con los **Disparos reales auditados (ESPN + SofaScore)** y la **Tasa de Gol en el 2do Tiempo (2T)** "
+        "Cruza el **% esperado en Pre-Apuesta** con los **Disparos reales auditados (Doble Fuente Oficial)** y la **Tasa de Gol en el 2do Tiempo (2T)** "
         "para respaldar tu entrada al **Over 0.5 / Over 1.5** cuando un equipo ya suma **3+ disparos**."
     )
 
@@ -1132,8 +1123,8 @@ with sec_scraping:
 
                 prob_pre, _, xg_pre, _ = calcular_pre_poisson_real(nom_l_full, nom_v_full, stats_temporada_api)
                 stats_raw = extraer_metricas_partido_reales(loc, vis)
-                sello_val, nivel_val, stats, _ = cruzar_validacion_real_sofascore(
-                    nom_l_full, nom_v_full, stats_raw, lista_vivo_sofascore
+                sello_val, nivel_val, stats, _ = cruzar_validacion_doble_fuente(
+                    nom_l_full, nom_v_full, stats_raw, lista_segunda_fuente
                 )
 
                 toth_l, toth_v, toth_tot = stats["toth_l"], stats["toth_v"], stats["toth_tot"]
@@ -1191,7 +1182,7 @@ with sec_scraping:
                     "🔥 Tasa Gol 2T": f"{tasa_gol_2t}%",
                     "🎯 Disparos (L-V)": f"{toth_l} - {toth_v} (Tot: {toth_tot})",
                     "🥅 Al Arco (L-V)": f"{stats['tmeta_l']} - {stats['tmeta_v']} (Tot: {tmeta_tot})",
-                    "🛡️ Auditoría 2da Fuente": sello_val,
+                    "🛡️ Auditoría MRFUTBOL": sello_val,
                     "💡 Veredicto y Confianza 2T": veredicto_vivo
                 })
 
@@ -1204,7 +1195,7 @@ with sec_scraping:
             html_boletin_vivo = generar_boletin_html_imprimible(
                 df_scr,
                 "REPORTE DE SCRAPING Y SEÑALES EN VIVO",
-                "Auditoría Dual ESPN + SofaScore"
+                "Auditoría Dual MRFUTBOL (Doble Fuente Oficial)"
             )
             st.download_button(
                 label="📄 Descargar Reporte de Señales en Vivo (Imprimible / PDF)",
