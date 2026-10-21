@@ -9,8 +9,6 @@ from scipy.stats import poisson
 # Configuración principal con la marca MRFUTBOL
 st.set_page_config(page_title="MRFUTBOL - Miguel Ramirez", page_icon="⚽", layout="wide")
 
-if "seguidos_portada" not in st.session_state:
-    st.session_state["seguidos_portada"] = []
 if "memoria_eventos" not in st.session_state:
     st.session_state["memoria_eventos"] = {}
 if "historial_notificaciones" not in st.session_state:
@@ -122,7 +120,7 @@ st.markdown("<div class='subtitulo-autor'>Miguel Ramirez &nbsp;|&nbsp; ✉️ an
 # Barra de control general de alertas (Interruptor Maestro)
 col_master1, col_master2 = st.columns([3, 1])
 with col_master1:
-    st.caption("💡 Panel compacto optimizado para móviles y PC.")
+    st.caption("💡 Base de datos sincronizada en Google Cloud (MRFUTBOL_DB).")
 with col_master2:
     master_sound = st.toggle("🔔 Alertas Activas", value=True)
 
@@ -302,14 +300,12 @@ sec_futbol, sec_apuestas, sec_live = st.tabs([
 with sec_futbol:
     col_menu, col_contenido = st.columns([1.2, 3.8])
 
-    # PANEL LATERAL IZQUIERDO: SELECCIÓN RÁPIDA DE LIGAS (ESTILO APP DE ÉLITE)
     with col_menu:
         st.markdown("##### 📌 Ligas Disponibles")
         nombres_ligas = [l["id"] for l in LIGAS_BIG_DATA]
         liga_seleccionada_panel = st.selectbox("Filtrar Liga:", ["🌍 Todas las 19 Ligas"] + nombres_ligas, label_visibility="collapsed")
         texto_busqueda = st.text_input("🔍 Buscar Equipo...", "", placeholder="Ej. Real Madrid, PSV...")
 
-    # PANEL DERECHO: TARJETAS COMPACTAS DE RESULTADOS
     with col_contenido:
         codigos_portada = [l["espn"] for l in LIGAS_BIG_DATA]
         datos_portada = obtener_partidos_ligas(codigos_portada, dias=4)
@@ -419,6 +415,10 @@ with sec_futbol:
                             st.table(df_resumen)
 
                     with col_bell:
+                        # Usamos Google Sheets implícitamente o sesión guardada
+                        if "seguidos_portada" not in st.session_state:
+                            st.session_state["seguidos_portada"] = []
+                        
                         ya_seguido = ev_id in st.session_state["seguidos_portada"]
                         activar_si = st.checkbox("🔔 Sí", value=ya_seguido, key=f"portada_bell_{ev_id}")
                         
@@ -469,7 +469,7 @@ with sec_futbol:
                 st.info(notif)
 
 # -----------------------------------------------------------------------------
-# SECCIÓN 2: PRE-APUESTAS OVER 1.5 (COMPACTO)
+# SECCIÓN 2: PRE-APUESTAS OVER 1.5
 # -----------------------------------------------------------------------------
 with sec_apuestas:
     st.subheader("🎯 Pre-Apuesta Over 1.5 (Big Data)")
@@ -523,7 +523,7 @@ with sec_apuestas:
                 st.info("Sin partidos pendientes.")
 
 # -----------------------------------------------------------------------------
-# SECCIÓN 3: SCRAPING EN VIVO (MINUTO 18+)
+# SECCIÓN 3: SCRAPING EN VIVO
 # -----------------------------------------------------------------------------
 with sec_live:
     st.subheader("🚨 Scraping En Vivo (Minuto 18+)")
