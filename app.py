@@ -119,7 +119,6 @@ st.markdown("""
 st.markdown("<div class='titulo-mrfutbol'>⚽ MRFUTBOL</div>", unsafe_allow_html=True)
 st.markdown("<div class='subtitulo-autor'>Miguel Ramirez &nbsp;|&nbsp; ✉️ angelramirezzmiguel2@gmail.com</div>", unsafe_allow_html=True)
 
-# Barra de control general de alertas (Interruptor Maestro)
 col_master1, col_master2 = st.columns([3, 1])
 with col_master1:
     st.caption("💡 Central MRFUTBOL activa con alertas sonoras en tiempo real.")
@@ -382,7 +381,8 @@ with sec_futbol:
                         </div>
                         """, unsafe_allow_html=True)
 
-                        with st.expander(f"📊 Resumen Clave ({nombre_cruce})"):
+                        # AISLAMIENTO ESTRICTO DE DETALLES POR CADA PARTIDO ESPECÍFICO
+                        with st.expander(f"📊 Resumen Clave ({nombre_cruce})", expanded=False):
                             eventos_texto = []
                             for d in detalles_partido:
                                 min_ev = d.get("clock", {}).get("displayValue", "")
@@ -520,7 +520,7 @@ with sec_apuestas:
                 st.info("Sin partidos pendientes.")
 
 # -----------------------------------------------------------------------------
-# SECCIÓN 3: SCRAPING EN VIVO CON RECOMENDACIÓN EXPLÍCITA (0.5 o 1.5)
+# SECCIÓN 3: SCRAPING EN VIVO
 # -----------------------------------------------------------------------------
 with sec_live:
     st.subheader("🚨 Scraping En Vivo (Minuto 18+)")
@@ -536,7 +536,6 @@ with sec_live:
             comp = evento.get("competitions", [{}])[0]
             status_type = comp.get("status", {}).get("type", {}).get("state", "pre")
             
-            # FILTRAR ÚNICAMENTE PARTIDOS EN CURSO
             if status_type != "in":
                 continue
 
