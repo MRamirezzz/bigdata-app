@@ -15,22 +15,22 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from scipy.stats import poisson
 
-# Configuración principal con la marca MRFUTBOL
+# Configuración principal con la marca exclusiva MRFUTBOL
 st.set_page_config(page_title="MRFUTBOL - Miguel Ramirez", page_icon="⚽", layout="wide")
 
 # =============================================================================
-# CONFIGURACIÓN OFICIAL API-FOOTBALL (v3.football.api-sports.io - 100 BALAS/DÍA)
+# CONEXIÓN INTERNA OCULTA (100% INVISIBLE AL PÚBLICO - SOLO MARCA MRFUTBOL)
 # =============================================================================
-API_FOOTBALL_HOST = "v3.football.api-sports.io"
+_MOTOR_PRO_HOST = "v3.football.api-sports.io"
 try:
-    API_FOOTBALL_KEY = st.secrets.get("API_FOOTBALL_KEY", "b9598555b70de4df59b0d0d205ce5a13")
+    _MOTOR_PRO_KEY = st.secrets.get("API_FOOTBALL_KEY", "b9598555b70de4df59b0d0d205ce5a13")
 except Exception:
-    API_FOOTBALL_KEY = "b9598555b70de4df59b0d0d205ce5a13"
+    _MOTOR_PRO_KEY = "b9598555b70de4df59b0d0d205ce5a13"
 
-HEADERS_API_FOOTBALL = {
-    "x-rapidapi-host": API_FOOTBALL_HOST,
-    "x-rapidapi-key": API_FOOTBALL_KEY,
-    "x-apisports-key": API_FOOTBALL_KEY
+_HEADERS_MOTOR_PRO = {
+    "x-rapidapi-host": _MOTOR_PRO_HOST,
+    "x-rapidapi-key": _MOTOR_PRO_KEY,
+    "x-apisports-key": _MOTOR_PRO_KEY
 }
 
 # =============================================================================
@@ -52,7 +52,7 @@ PASO_3_PICOS_REF = {
 }
 
 # =============================================================================
-# 1. MEMORIA INDIVIDUAL POR CADA USUARIO / NAVEGADOR (COMO CUALQUIER APP DE FÚTBOL)
+# 1. MEMORIA INDIVIDUAL POR CADA USUARIO / NAVEGADOR
 # =============================================================================
 if "seguidos_usuario" not in st.session_state:
     st.session_state["seguidos_usuario"] = []
@@ -66,7 +66,7 @@ if "aviso_vip_bloqueado" not in st.session_state:
     st.session_state["aviso_vip_bloqueado"] = ""
 
 # =============================================================================
-# 2. BÓVEDAS PERSISTENTES EN EL SERVIDOR (OVER 0.5 + CACHÉ VIP API-FOOTBALL)
+# 2. BÓVEDAS PERSISTENTES EN EL SERVIDOR (LIMPIEZA DE TEXTOS EXTERNOS Y AUTO-FILTROS)
 # =============================================================================
 ARCHIVO_BITACORA_OCULTA = ".boveda_ml_over05_mrfutbol.json"
 ARCHIVO_BOVEDA_VIP_API = ".boveda_vip_apifootball_mrfutbol.json"
@@ -88,6 +88,45 @@ def guardar_boveda_ml_servidor(boveda):
     except Exception:
         pass
 
+def limpiar_textos_externos_boveda(boveda_vip):
+    """
+    Purga automáticamente cualquier partido que se haya metido antes por 'Filtro Automático'
+    y reemplaza cualquier texto viejo de URLs externas por la marca oficial MRFUTBOL.
+    """
+    picks = boveda_vip.get("picks_vip_hoy", {})
+    ids_borrar = []
+    for k, v in picks.items():
+        origen_str = str(v.get("origen", ""))
+        if "Filtro Automático" in origen_str or "Filtro Élite" in origen_str:
+            ids_borrar.append(k)
+        else:
+            ficha = v.get("ficha", {})
+            if "Sello_API" in ficha:
+                ficha["Sello_API"] = (
+                    str(ficha["Sello_API"])
+                    .replace("v3.football.api-sports.io", "Motor MRFUTBOL Pro")
+                    .replace("Fixture", "ID")
+                )
+            if "Paso3_Contexto_Urgencia" in ficha:
+                ficha["Paso3_Contexto_Urgencia"] = (
+                    str(ficha["Paso3_Contexto_Urgencia"]).replace("Pico API:", "Pico MRFUTBOL:")
+                )
+    for k in ids_borrar:
+        del picks[k]
+
+    cache_an = boveda_vip.get("cache_api_analisis", {})
+    for k, ficha in cache_an.items():
+        if "Sello_API" in ficha:
+            ficha["Sello_API"] = (
+                str(ficha["Sello_API"])
+                .replace("v3.football.api-sports.io", "Motor MRFUTBOL Pro")
+                .replace("Fixture", "ID")
+            )
+        if "Paso3_Contexto_Urgencia" in ficha:
+            ficha["Paso3_Contexto_Urgencia"] = (
+                str(ficha["Paso3_Contexto_Urgencia"]).replace("Pico API:", "Pico MRFUTBOL:")
+            )
+
 @st.cache_resource
 def obtener_boveda_vip_servidor():
     estructura_base = {
@@ -107,9 +146,11 @@ def obtener_boveda_vip_servidor():
                         estructura_base[k] = data[k]
         except Exception:
             pass
+    limpiar_textos_externos_boveda(estructura_base)
     return estructura_base
 
 def guardar_boveda_vip_servidor(boveda_vip):
+    limpiar_textos_externos_boveda(boveda_vip)
     try:
         with open(ARCHIVO_BOVEDA_VIP_API, "w", encoding="utf-8") as f:
             json.dump(boveda_vip, f, ensure_ascii=False, indent=2)
@@ -118,8 +159,9 @@ def guardar_boveda_vip_servidor(boveda_vip):
 
 boveda_ml_05 = obtener_boveda_ml_servidor()
 boveda_vip = obtener_boveda_vip_servidor()
+limpiar_textos_externos_boveda(boveda_vip)
 
-# ESTILOS CSS COMPACTOS + TARJETAS ANCHAS DE TRADING Y SECCIÓN VIP PASO 3
+# ESTILOS CSS COMPACTOS + TARJETAS ANCHAS DE TRADING Y SALA VIP MRFUTBOL
 st.markdown("""
 <style>
 .titulo-mrfutbol {
@@ -475,9 +517,9 @@ def obtener_fecha_local_evento(iso_fecha):
         return "1970-01-01", "Programado", "--:--", datetime(1970, 1, 1)
 
 # =============================================================================
-# MOTOR QUIRÚRGICO API-FOOTBALL CON LOS 8 BLOQUES DE [PASO_3_BIG_DATA]
+# MOTOR PRO MRFUTBOL [PASO_3_BIG_DATA] (100% MARCA BLANCA Y SOLO CON PLEQUITA)
 # =============================================================================
-def registrar_bala_api(headers_resp=None):
+def registrar_consulta_motor_pro(headers_resp=None):
     hoy_str = (datetime.utcnow() - timedelta(hours=6)).strftime("%Y-%m-%d")
     uso = boveda_vip.setdefault("uso_diario_api", {"fecha": hoy_str, "usadas": 0, "limite": 100})
     if uso.get("fecha") != hoy_str:
@@ -496,16 +538,16 @@ def registrar_bala_api(headers_resp=None):
         uso["usadas"] += 1
     guardar_boveda_vip_servidor(boveda_vip)
 
-def obtener_fixture_id_apifootball(nom_local, nom_visita, fecha_yyyy_mm_dd):
+def obtener_id_interno_mrfutbol(nom_local, nom_visita, fecha_yyyy_mm_dd):
     mapa_dia = boveda_vip.setdefault("mapa_fixtures_dia", {})
     if fecha_yyyy_mm_dd not in mapa_dia:
         uso = boveda_vip.get("uso_diario_api", {})
         if uso.get("usadas", 0) >= 98:
             return None
-        url = f"https://{API_FOOTBALL_HOST}/fixtures?date={fecha_yyyy_mm_dd}"
+        url = f"https://{_MOTOR_PRO_HOST}/fixtures?date={fecha_yyyy_mm_dd}"
         try:
-            res = requests.get(url, headers=HEADERS_API_FOOTBALL, timeout=5)
-            registrar_bala_api(res.headers)
+            res = requests.get(url, headers=_HEADERS_MOTOR_PRO, timeout=5)
+            registrar_consulta_motor_pro(res.headers)
             if res.status_code == 200:
                 lista_fix = []
                 for item in res.json().get("response", []):
@@ -524,25 +566,27 @@ def obtener_fixture_id_apifootball(nom_local, nom_visita, fecha_yyyy_mm_dd):
             return fix["id"]
     return None
 
-def analizar_partido_profundo_apifootball(
+def analizar_partido_profundo_mrfutbol(
     ev_id, nom_local, nom_visita, nombre_liga, fecha_ev_local,
     prob_pre, xg_base, stats_vivo, stats_temporada, st_f2=None, goles_actuales=0
 ):
     """
-    DISPARO EXCLUSIVO A PEDIDO (PLEQUITA):
-    Calcula y muestra todos los bloques de [PASO_3_BIG_DATA] comparándolos contra los
-    Picos Altos de Referencia sin descartar el partido:
-    1. [PASO_3_FILTRO_OFENSIVO_PRO]: Big Chances (Ref 3.2), Tiros a Puerta (Ref 5.5), xG Combinado con Factor Localía 1.2x (Ref 2.4)
-    2. [PASO_3_FILTRO_EFICIENCIA] & [PASO_3_LOGICA_CARNICERIA]: Calidad xG/Shot (Ref >= 0.12)
-    3. [PASO_3_FILTRO_VULNERABILIDAD_RIVAL]: xGA Concedido Rival (Ref >= 1.3) y % Portería a Cero (Ref <= 25%)
-    4. [PASO_3_MOMENTUM_OFENSIVO]: Racha 2+ goles en 3 juegos seguidos (+5% Bono)
-    5. [PASO_3_SISTEMA_COLECTIVO_10.5]: Redundancia Goleadores (Mín 2 / Máx 45%) y Asistentes (Mín 4 / Límite 0.40)
-    6. [PASO_3_VARIANZA_EXPECTATIVA]: Compensación por Deuda de Gol (Regresión a la media)
-    7. [PASO_3_CONTEXTO_TABLA_URGENCIA]: Motivación por Lucha de Título / Descenso vs Zona Media
+    SE EJECUTA ÚNICAMENTE CUANDO EL JEFE ACTIVA LA PLEQUITA MANUALMENTE.
+    100% Marca Blanca MRFUTBOL (Cero menciones a proveedores externos).
     """
     cache_api = boveda_vip.setdefault("cache_api_analisis", {})
     if ev_id in cache_api and "Paso3_Ofensivo_Pro" in cache_api[ev_id]:
-        return cache_api[ev_id]
+        ficha_guardada = cache_api[ev_id]
+        ficha_guardada["Sello_API"] = (
+            str(ficha_guardada.get("Sello_API", "✅ Auditoría Exclusiva MRFUTBOL Pro"))
+            .replace("v3.football.api-sports.io", "Motor MRFUTBOL Pro")
+            .replace("Fixture", "ID")
+        )
+        ficha_guardada["Paso3_Contexto_Urgencia"] = (
+            str(ficha_guardada.get("Paso3_Contexto_Urgencia", ""))
+            .replace("Pico API:", "Pico MRFUTBOL:")
+        )
+        return ficha_guardada
 
     sot_l_bd, xgs_l_bd, tag_l_bd, col_l, _ = auditar_equipo_bd(nom_local)
     sot_v_bd, xgs_v_bd, tag_v_bd, col_v, _ = auditar_equipo_bd(nom_visita)
@@ -558,7 +602,6 @@ def analizar_partido_profundo_apifootball(
     rank_v = int(real_v.get("rank", 10) or 10)
     tot_eq = int(real_l.get("total_teams", 18) or 18)
 
-    # Valores base antes de enriquecer con API-Football
     sot_proyectado = round((sot_l_bd + sot_v_bd) * 0.58, 1)
     if stats_vivo and stats_vivo.get("tmeta_tot", 0) > 0:
         sot_proyectado = max(sot_proyectado, float(stats_vivo["tmeta_tot"]) + 2.5)
@@ -580,18 +623,17 @@ def analizar_partido_profundo_apifootball(
     xga_rival = round(max(gc_v, gc_l), 2)
     racha_goleadora_activa = (gf_l >= 1.75 or gf_v >= 1.75)
     form_h_str, form_a_str = "WWDWL", "WDLWW"
-    franja_pico = "31'-45' (1T) y 61'-75' (2T)"
-    sello_api = "⚡ Modelo Big Data MRFUTBOL"
+    franja_pico = "Pico MRFUTBOL: Min 31'-45' y 61'-75'"
+    sello_mrfutbol = "✅ Auditoría Exclusiva MRFUTBOL Pro"
 
-    # Disparo a v3.football.api-sports.io (1 sola llamada de predicción por partido)
     uso = boveda_vip.get("uso_diario_api", {})
     if uso.get("usadas", 0) < 98:
-        fix_id = obtener_fixture_id_apifootball(nom_local, nom_visita, fecha_ev_local)
+        fix_id = obtener_id_interno_mrfutbol(nom_local, nom_visita, fecha_ev_local)
         if fix_id:
-            url_pred = f"https://{API_FOOTBALL_HOST}/predictions?fixture={fix_id}"
+            url_pred = f"https://{_MOTOR_PRO_HOST}/predictions?fixture={fix_id}"
             try:
-                res = requests.get(url_pred, headers=HEADERS_API_FOOTBALL, timeout=5)
-                registrar_bala_api(res.headers)
+                res = requests.get(url_pred, headers=_HEADERS_MOTOR_PRO, timeout=5)
+                registrar_consulta_motor_pro(res.headers)
                 if res.status_code == 200:
                     resp_list = res.json().get("response", [])
                     if resp_list:
@@ -622,19 +664,16 @@ def analizar_partido_profundo_apifootball(
                             big_chances_est = round(max(big_chances_est, xg_combinado_12 * 1.32), 1)
                             calidad_xg_shot = round(max(0.09, min(0.22, xg_combinado_12 / max(10.0, disparos_tot_est))), 3)
 
-                        # Extraer % real de Portería a Cero (Clean Sheets) del rival desde API-Football
                         cs_away_tot = a_league.get("clean_sheet", {}).get("total")
                         pj_away_tot = a_league.get("fixtures", {}).get("played", {}).get("total")
                         if cs_away_tot is not None and pj_away_tot and int(pj_away_tot) > 0:
                             clean_sheet_rival_pct = round((float(cs_away_tot) / float(pj_away_tot)) * 100.0, 1)
 
-                        # Evaluar Momentum Ofensivo (2+ goles de promedio reciente o racha de victorias)
                         tot_g_last5_h = h_last5.get("goals", {}).get("for", {}).get("total", 0) or 0
                         tot_g_last5_a = a_last5.get("goals", {}).get("for", {}).get("total", 0) or 0
                         if int(tot_g_last5_h) >= 8 or int(tot_g_last5_a) >= 8 or gf_l >= 1.8 or gf_v >= 1.8:
                             racha_goleadora_activa = True
 
-                        # Franja de minutos más goleadora
                         minutos_h = h_league.get("goals", {}).get("for", {}).get("minute", {})
                         mejor_franja = "31-45"
                         max_goles_franja = -1
@@ -643,12 +682,11 @@ def analizar_partido_profundo_apifootball(
                             if tot_f > max_goles_franja:
                                 max_goles_franja = tot_f
                                 mejor_franja = k_min
-                        franja_pico = f"Pico API: Min {mejor_franja}' y 61'-75'"
-                        sello_api = f"✅ Auditado v3.football.api-sports.io (Fixture #{fix_id})"
+                        franja_pico = f"Pico MRFUTBOL: Min {mejor_franja}' y 61'-75'"
+                        sello_mrfutbol = f"✅ Auditoría Exclusiva MRFUTBOL Pro (ID #{fix_id})"
             except Exception:
                 pass
 
-    # 1. [PASO_3_FILTRO_OFENSIVO_PRO]
     paso3_ofensivo = (
         f"Big Chances: {big_chances_est} | SoT: {sot_proyectado} | xG (1.2x Loc): {xg_combinado_12}"
     )
@@ -657,20 +695,20 @@ def analizar_partido_profundo_apifootball(
         f"SoT >= {PASO_3_PICOS_REF['MIN_TIROS_A_PUERTA']} | xG >= {PASO_3_PICOS_REF['MIN_xG_COMBINADO']}"
     )
 
-    # 2. [PASO_3_FILTRO_EFICIENCIA] & [PASO_3_LOGICA_CARNICERIA]
     if calidad_xg_shot >= PASO_3_PICOS_REF["MIN_QUALITY_PER_SHOT"]:
         paso3_carniceria = f"{calidad_xg_shot} xG/Tiro (🔥 Pólvora Fina / Peligro Real)"
     else:
         paso3_carniceria = f"{calidad_xg_shot} xG/Tiro (⚠️ Carnicería: Degradado por Tiro Lejano)"
     ref_carniceria = f"Pico Ref: Calidad >= {PASO_3_PICOS_REF['MIN_QUALITY_PER_SHOT']} xG/Shot"
 
-    # 3. [PASO_3_FILTRO_VULNERABILIDAD_RIVAL]
-    es_vulnerable = (xga_rival >= PASO_3_PICOS_REF["MIN_xGA_CONCEDIDO_RIVAL"] and clean_sheet_rival_pct <= PASO_3_PICOS_REF["MAX_PORTERIA_CERO_RIVAL_PCT"])
+    es_vulnerable = (
+        xga_rival >= PASO_3_PICOS_REF["MIN_xGA_CONCEDIDO_RIVAL"]
+        and clean_sheet_rival_pct <= PASO_3_PICOS_REF["MAX_PORTERIA_CERO_RIVAL_PCT"]
+    )
     tag_vuln = "🧀 Permite Daño Real" if es_vulnerable else ("🧱 Rival Rocoso" if clean_sheet_rival_pct > 25.0 else "⚖️ Defensa Media")
     paso3_vulnerabilidad = f"xGA Rival: {xga_rival} | Valla Invicta: {clean_sheet_rival_pct}% ({tag_vuln})"
     ref_vulnerabilidad = f"Pico Ref: xGA >= {PASO_3_PICOS_REF['MIN_xGA_CONCEDIDO_RIVAL']} | Valla Invicta <= 25%"
 
-    # 4. [PASO_3_MOMENTUM_OFENSIVO]
     prob_con_bono = round(min(96.0, prob_pre + (5.0 if racha_goleadora_activa else 0.0)), 1)
     if racha_goleadora_activa:
         paso3_momentum = f"🔥 Pólvora Encendida (+5% Bono -> {prob_con_bono}%)"
@@ -678,7 +716,6 @@ def analizar_partido_profundo_apifootball(
         paso3_momentum = f"⚖️ Ritmo Estándar ({prob_pre}% Sin Bono) | {form_h_str} vs {form_a_str}"
     ref_momentum = "Regla: 2+ goles en 3 juegos seguidos (+5% Bono)"
 
-    # 5. [PASO_3_SISTEMA_COLECTIVO_10.5]
     goleadores_unicos = 4 if (gf_l + gf_v) >= 2.8 else 3
     asistentes_unicos = 5 if (gf_l + gf_v) >= 2.6 else 4
     dep_goleador_pct = round(max(26.0, min(44.0, 52.0 - ((gf_l + gf_v) * 6.5))), 1)
@@ -689,14 +726,12 @@ def analizar_partido_profundo_apifootball(
     )
     ref_colectivo = "Pico Ref: >=2 Goleadores (<=45%) | >=4 Asistentes (<=0.40)"
 
-    # 6. [PASO_3_VARIANZA_EXPECTATIVA]
     if goles_actuales == 0 and ((stats_vivo and stats_vivo.get("toth_tot", 0) >= 4) or xg_combinado_12 >= 2.2):
         paso3_varianza = "🎰 Deuda de Gol Activa (Alto xG y 0 Goles -> Regresión a Favor)"
     else:
         paso3_varianza = f"📈 Varianza Normal (xG {xg_combinado_12} vs Prom. {round(gf_l + gf_v, 2)} Goles)"
     ref_varianza = "COMPENSAR_DEUDA_DE_GOL = SI | Regresión a la Media"
 
-    # 7. [PASO_3_CONTEXTO_TABLA_URGENCIA]
     if rank_l <= 4 or rank_v <= 4:
         paso3_urgencia = f"🏆 Lucha por Título / Top ({rank_l}º vs {rank_v}º) -> +Bono Motivación"
     elif rank_l >= (tot_eq - 3) or rank_v >= (tot_eq - 3):
@@ -724,7 +759,7 @@ def analizar_partido_profundo_apifootball(
         "Ref_Varianza": ref_varianza,
         "Paso3_Contexto_Urgencia": paso3_urgencia,
         "Ref_Urgencia": ref_urgencia,
-        "Sello_API": sello_api
+        "Sello_API": sello_mrfutbol
     }
     cache_api[ev_id] = ficha_vip
     guardar_boveda_vip_servidor(boveda_vip)
@@ -1299,14 +1334,13 @@ def accionar_plequita_vip(
     origen_label, st_f2=None, goles_actuales=0
 ):
     """
-    GATILLO ÚNICO Y MANUAL (PLEQUITA):
-    Solo gasta bala de API-Football cuando el Admin marca explícitamente la plequita.
-    No exige que el partido cumpla los picos altos; los muestra todos como radiografía.
+    ÚNICO GATILLO PARA ENTRAR A LA PESTAÑA 5 (SALA VIP MRFUTBOL):
+    Jamás se dispara solo. Únicamente cuando el Administrador marca la plequita.
     """
     if not st.session_state.get("admin_autenticado", False):
         st.session_state["aviso_vip_bloqueado"] = (
-            f"🔒 Función exclusiva para miembros VIP ({nom_l_full} vs {nom_v_full}). "
-            f"Solicita tu clave de acceso al Administrador escribiendo a: angelramirezzmiguel2@gmail.com"
+            f"🔒 Función exclusiva de Sala VIP MRFUTBOL ({nom_l_full} vs {nom_v_full}). "
+            f"Solicita tu clave de acceso escribiendo a: angelramirezzmiguel2@gmail.com"
         )
         return
 
@@ -1316,7 +1350,7 @@ def accionar_plequita_vip(
         del picks_hoy[ev_id]
         guardar_boveda_vip_servidor(boveda_vip)
     else:
-        ficha = analizar_partido_profundo_apifootball(
+        ficha = analizar_partido_profundo_mrfutbol(
             ev_id, nom_l_full, nom_v_full, nombre_liga, fecha_ev_local,
             prob_pre, xg_pre, stats_vivo, stats_temporada_api, st_f2, goles_actuales
         )
@@ -1343,6 +1377,8 @@ def renderizar_central_mrfutbol():
     str_hoy = ahora_hn_dt.strftime("%Y-%m-%d")
     str_manana = (ahora_hn_dt + timedelta(days=1)).strftime("%Y-%m-%d")
 
+    limpiar_textos_externos_boveda(boveda_vip)
+
     if boveda_vip.get("fecha_activa") != str_hoy:
         boveda_vip["fecha_activa"] = str_hoy
         boveda_vip["picks_vip_hoy"] = {}
@@ -1357,7 +1393,7 @@ def renderizar_central_mrfutbol():
         st.caption(
             f"💡 Central MRFUTBOL | 🕒 Sincronizado: **{ahora_hn_str}** | "
             f"🔔 Mis Seguidos: **{len(st.session_state['seguidos_usuario'])}** | "
-            f"👑 Sala VIP: **{len(boveda_vip.get('picks_vip_hoy', {}))}**"
+            f"👑 En Sala VIP: **{len(boveda_vip.get('picks_vip_hoy', {}))}**"
         )
 
     codigos_todas = [l["code"] for l in LIGAS_BIG_DATA]
@@ -1456,11 +1492,13 @@ def renderizar_central_mrfutbol():
                     "rojas": rojas_actuales
                 })
 
-    sec_resultados, sec_en_vivo, sec_apuestas, sec_scraping = st.tabs([
+    # 5 PESTAÑAS INDEPENDIENTES (SALA VIP SEPARADA DE PRE-APUESTAS)
+    sec_resultados, sec_en_vivo, sec_apuestas, sec_scraping, sec_sala_vip = st.tabs([
         "⚽ 1. CARTELERA DE HOY", 
         "🔴 2. PARTIDOS EN VIVO", 
-        "🎯 3. PRE-APUESTAS Y SECCIÓN VIP", 
-        "🚨 4. SCRAPING Y TERMINAL 0.5"
+        "🎯 3. PRE-APUESTAS OVER 1.5", 
+        "🚨 4. SCRAPING Y TERMINAL 0.5",
+        "👑 5. SALA VIP MRFUTBOL"
     ])
 
     # -------------------------------------------------------------------------
@@ -1503,19 +1541,13 @@ def renderizar_central_mrfutbol():
                 if st.session_state["admin_autenticado"]:
                     st.success("🔓 Llave Maestra Activa en tu Navegador: Miguel Ramirez")
                     st.caption(
-                        f"🎯 Balas API-Football usadas hoy: **{uso_api.get('usadas', 0)} / 100** "
+                        f"🎯 Consultas Pro usadas hoy: **{uso_api.get('usadas', 0)} / 100** "
                         f"(Disparo 100% manual con Plequita)"
                     )
                     col_adm1, col_adm2 = st.columns(2)
                     with col_adm1:
-                        if st.button("🧹 Limpiar Finalizados de VIP", use_container_width=True):
-                            picks_hoy = boveda_vip.get("picks_vip_hoy", {})
-                            para_borrar = [
-                                k for k in list(picks_hoy.keys())
-                                if mapa_estado_partidos.get(k, {}).get("st_state") == "post"
-                            ]
-                            for k in para_borrar:
-                                del picks_hoy[k]
+                        if st.button("🧹 Vaciar Sala VIP de Hoy", use_container_width=True):
+                            boveda_vip["picks_vip_hoy"] = {}
                             guardar_boveda_vip_servidor(boveda_vip)
                             st.rerun()
                     with col_adm2:
@@ -1793,11 +1825,11 @@ def renderizar_central_mrfutbol():
             st.info("No hay partidos en curso en este preciso instante en las 19 ligas.")
 
     # -------------------------------------------------------------------------
-    # SECCIÓN 3: PRE-APUESTAS OVER 1.5 + SECCIÓN RECOMENDADA VIP [PASO_3]
+    # SECCIÓN 3: PRE-APUESTAS OVER 1.5 (LIMPIA Y SIN AUTO-ESCANEO)
     # -------------------------------------------------------------------------
     with sec_apuestas:
         st.subheader("🎯 Laboratorio Pre-Apuesta Over 1.5 y Tasas por Tiempo (1T / 2T)")
-        st.caption("Cruza los goles reales de temporada con la base MRFUTBOL. (Cero llamadas automáticas a la API: tú eliges a qué partido darle la Plequita VIP).")
+        st.caption("Cruza los goles reales de temporada con la base MRFUTBOL y desglosa la probabilidad de gol en el 1er Tiempo, cierre del 1T (38'-45') y 2do Tiempo.")
 
         col_f1, col_f2 = st.columns([2.5, 1.5])
         with col_f1:
@@ -1820,7 +1852,6 @@ def renderizar_central_mrfutbol():
 
                 comp = evento.get("competitions", [{}])[0]
                 st_state, es_ht, _, _, _ = detectar_estado_partido(comp, evento.get("date", ""))
-                # ESTRICTO: Ignorar por completo partidos ya finalizados (post)
                 if st_state != "pre" or es_ht:
                     continue
 
@@ -1898,307 +1929,15 @@ def renderizar_central_mrfutbol():
         else:
             st.info("No hay partidos por iniciar que cumplan el filtro actual. Puedes bajar el deslizador de porcentaje.")
 
-        # =====================================================================
-        # SECCIÓN RECOMENDADA VIP [PASO_3_BIG_DATA] + CANDADO DE TIEMPO + CACHÉ
-        # =====================================================================
-        st.markdown("---")
-        st.subheader("👑 Sección Recomendada VIP — Radiografía Completa [PASO_3_BIG_DATA]")
-        st.caption(
-            "Muestra únicamente los partidos que tú envíes con la **plequita `☑️ Enviar a VIP (API)`** desde el Scraping en Vivo "
-            "o que selecciones manualmente aquí abajo (jamás gasta llamadas en partidos ya terminados). "
-            "Evalúa los 8 bloques de tu `.INI` frente a los **Picos Altos de Referencia**."
-        )
-
-        col_vip_izq, col_vip_der = st.columns([3.05, 1.15])
-
-        with col_vip_izq:
-            # Selector manual para enviar un partido Pre (>=75% no jugado) a VIP solo si el Jefe quiere
-            if candidatos_pre_no_jugados:
-                col_sel_p1, col_sel_p2 = st.columns([3, 1.5])
-                with col_sel_p1:
-                    mapa_cand_pre = {c["label"]: c for c in candidatos_pre_no_jugados}
-                    sel_cand_lbl = st.selectbox(
-                        "🎯 Candidatos Pre-Partido >=75% (Aún NO jugados):",
-                        options=list(mapa_cand_pre.keys()),
-                        label_visibility="collapsed"
-                    )
-                with col_sel_p2:
-                    if st.button("☑️ Enviar este Pre a VIP (1 Bala)", use_container_width=True):
-                        c_sel = mapa_cand_pre[sel_cand_lbl]
-                        accionar_plequita_vip(
-                            c_sel["ev_id"], c_sel["nom_local"], c_sel["nom_visita"],
-                            c_sel["nombre_liga"], c_sel["fecha_ev_local"], c_sel["prob_final"],
-                            c_sel["xg_base"], None, stats_temporada_api, c_sel["iso_fecha"],
-                            "🎯 Pre-Partido VIP >= 75%"
-                        )
-                        st.rerun()
-
-            if st.session_state.get("aviso_vip_bloqueado"):
-                st.warning(st.session_state["aviso_vip_bloqueado"])
-
-            picks_vip_actuales = boveda_vip.get("picks_vip_hoy", {})
-            lista_mostrar_vip = list(picks_vip_actuales.values())
-
-            if lista_mostrar_vip:
-                todos_terminados = True
-                partidos_pendientes = 0
-                ultima_hora_cierre = ahora_hn_dt
-                filas_reporte_vip = []
-                aciertos_vip = 0
-                evaluados_vip = 0
-
-                for item_vip in lista_mostrar_vip:
-                    v_id = item_vip["ev_id"]
-                    origen_vip = item_vip.get("origen", "⚡ Plequita VIP")
-                    ficha = item_vip["ficha"]
-
-                    # Si una ficha guardada antes no tenía los campos nuevos de PASO_3, se actualiza sin gastar bala
-                    if "Paso3_Ofensivo_Pro" not in ficha:
-                        partes_nom = ficha.get("Partido", "Local vs Visita").split(" vs ")
-                        n_l = partes_nom[0] if len(partes_nom) > 0 else "Local"
-                        n_v = partes_nom[1] if len(partes_nom) > 1 else "Visita"
-                        ficha = analizar_partido_profundo_apifootball(
-                            v_id, n_l, n_v, ficha.get("Liga", ""), str_hoy,
-                            75.0, 2.3, None, stats_temporada_api
-                        )
-                        item_vip["ficha"] = ficha
-
-                    est_ev = mapa_estado_partidos.get(v_id, {})
-                    st_ev = est_ev.get("st_state", "pre")
-                    gol_l_v = est_ev.get("gol_l", 0)
-                    gol_v_v = est_ev.get("gol_v", 0)
-                    goles_tot_v = est_ev.get("goles_tot", 0)
-                    reloj_v = est_ev.get("reloj_txt", "En Curso")
-                    dt_inicio = est_ev.get("dt_local", ahora_hn_dt)
-
-                    cierre_estimado_partido = dt_inicio + timedelta(hours=2)
-                    if cierre_estimado_partido > ultima_hora_cierre:
-                        ultima_hora_cierre = cierre_estimado_partido
-
-                    es_linea_05 = ("Scraping" in origen_vip or "Plequita" in origen_vip)
-                    meta_goles = 1 if es_linea_05 else 2
-                    mercado_nombre = "OVER 0.5 EN VIVO (Plequita)" if es_linea_05 else "OVER 1.5 GOLES (VIP)"
-
-                    if st_ev != "post":
-                        todos_terminados = False
-                        partidos_pendientes += 1
-                        if goles_tot_v >= meta_goles:
-                            estado_res_vip = f"✅ LÍNEA YA CUBIERTA EN VIVO ({gol_l_v}-{gol_v_v} al {reloj_v})"
-                        else:
-                            estado_res_vip = f"⏳ EN JUEGO / PENDIENTE ({gol_l_v}-{gol_v_v} | {reloj_v})"
-                    else:
-                        evaluados_vip += 1
-                        if goles_tot_v >= meta_goles:
-                            aciertos_vip += 1
-                            estado_res_vip = f"✅ VERDE OFICIAL ({gol_l_v}-{gol_v_v} Final)"
-                        else:
-                            estado_res_vip = f"❌ ROJO ({gol_l_v}-{gol_v_v} Final)"
-
-                    st.markdown(f"""
-                    <div class="vip-card">
-                        <div class="trading-header">
-                            <div>
-                                <span style="background:#ffd700; color:#000; padding:3px 8px; border-radius:4px; font-weight:900; font-size:11px;">{origen_vip}</span>
-                                &nbsp; <strong style="font-size:16px; color:#ffffff;">{ficha['Partido']}</strong>
-                                &nbsp; <span style="font-size:12px; color:#00ffcc; font-weight:700;">({mercado_nombre} | Prob: {ficha['Prob_Over15']})</span>
-                            </div>
-                            <div style="font-size:12px; color:#ffd700; font-weight:700;">
-                                {estado_res_vip}
-                            </div>
-                        </div>
-                        <div class="trading-metrics-grid">
-                            <div class="metric-pill">
-                                <span>🎯 [PASO_3_OFENSIVO_PRO]</span>
-                                <strong>{ficha['Paso3_Ofensivo_Pro']}</strong>
-                                <small>{ficha['Ref_Ofensivo_Pro']}</small>
-                            </div>
-                            <div class="metric-pill">
-                                <span>🥩 [EFICIENCIA / CARNICERÍA]</span>
-                                <strong>{ficha['Paso3_Eficiencia_Carniceria']}</strong>
-                                <small>{ficha['Ref_Carniceria']}</small>
-                            </div>
-                            <div class="metric-pill">
-                                <span>🧀 [VULNERABILIDAD RIVAL]</span>
-                                <strong>{ficha['Paso3_Vulnerabilidad_Rival']}</strong>
-                                <small>{ficha['Ref_Vulnerabilidad']}</small>
-                            </div>
-                            <div class="metric-pill">
-                                <span>🔥 [MOMENTUM OFENSIVO]</span>
-                                <strong>{ficha['Paso3_Momentum']}</strong>
-                                <small>{ficha['Ref_Momentum']}</small>
-                            </div>
-                            <div class="metric-pill">
-                                <span>🤝 [SISTEMA COLECTIVO 10.5]</span>
-                                <strong>{ficha['Paso3_Colectivo_105']}</strong>
-                                <small>{ficha['Ref_Colectivo']}</small>
-                            </div>
-                            <div class="metric-pill">
-                                <span>🎰 [VARIANZA / DEUDA DE GOL]</span>
-                                <strong>{ficha['Paso3_Varianza_Deuda']}</strong>
-                                <small>{ficha['Ref_Varianza']}</small>
-                            </div>
-                            <div class="metric-pill">
-                                <span>🏆 [CONTEXTO TABLA / URGENCIA]</span>
-                                <strong>{ficha['Paso3_Contexto_Urgencia']}</strong>
-                                <small>{ficha['Ref_Urgencia']}</small>
-                            </div>
-                        </div>
-                        <div style="font-size:11px; color:#9ba1b0;">
-                            {ficha['Liga']} &nbsp;|&nbsp; {ficha['Sello_API']}
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                    filas_reporte_vip.append({
-                        "Origen": origen_vip,
-                        "Liga": ficha["Liga"],
-                        "Partido": ficha["Partido"],
-                        "Mercado": mercado_nombre,
-                        "Prob. Ajustada": ficha["Prob_Over15"],
-                        "Ofensivo Pro (BC/SoT/xG)": ficha["Paso3_Ofensivo_Pro"],
-                        "Calidad Tiro (Carnicería)": ficha["Paso3_Eficiencia_Carniceria"],
-                        "Vulnerabilidad Rival": ficha["Paso3_Vulnerabilidad_Rival"],
-                        "Momentum Ofensivo": ficha["Paso3_Momentum"],
-                        "Sistema Colectivo 10.5": ficha["Paso3_Colectivo_105"],
-                        "Varianza / Deuda Gol": ficha["Paso3_Varianza_Deuda"],
-                        "Contexto Tabla Urgencia": ficha["Paso3_Contexto_Urgencia"],
-                        "Resultado Auditado": estado_res_vip
-                    })
-
-                df_vip_hoy = pd.DataFrame(filas_reporte_vip)
-
-                if not todos_terminados:
-                    hora_desbloqueo_str = ultima_hora_cierre.strftime("%H:%M")
-                    st.warning(
-                        f"🔒 **CANDADO DE TRANSPARENCIA ACTIVO:** Faltan **{partidos_pendientes} partido(s)** por concluir de tu selección VIP. "
-                        f"La descarga del Reporte Oficial se habilitará automáticamente al finalizar el último encuentro (Cierre estimado: **{hora_desbloqueo_str} hrs**)."
-                    )
-                    col_lock1, col_lock2 = st.columns(2)
-                    with col_lock1:
-                        st.button(
-                            f"🔒 Descargar Reporte VIP en PDF/HTML (Bloqueado hasta las {hora_desbloqueo_str})",
-                            disabled=True,
-                            use_container_width=True
-                        )
-                    with col_lock2:
-                        st.button(
-                            f"🔒 Descargar Auditoría VIP en Excel/CSV (Faltan {partidos_pendientes} partidos)",
-                            disabled=True,
-                            use_container_width=True
-                        )
-                else:
-                    yield_pct = round((aciertos_vip / max(1, evaluados_vip)) * 100, 1)
-                    st.success(
-                        f"🔓 **¡SELECCIÓN VIP CONCLUIDA Y AUDITADA!** Todos los partidos seleccionados han finalizado. "
-                        f"Efectividad oficial: **{yield_pct}% ({aciertos_vip} Verdes de {evaluados_vip})**. Descarga habilitada y guardada en el Caché Derecho."
-                    )
-
-                    hist_7d = boveda_vip.setdefault("historial_reportes_7d", [])
-                    ya_archivado = any(r.get("fecha") == str_hoy for r in hist_7d)
-                    resumen_dia_archivo = {
-                        "fecha": str_hoy,
-                        "hora_cierre": ahora_hn_dt.strftime("%H:%M"),
-                        "total": evaluados_vip,
-                        "verdes": aciertos_vip,
-                        "rojos": evaluados_vip - aciertos_vip,
-                        "yield_pct": yield_pct,
-                        "registros": filas_reporte_vip
-                    }
-                    if not ya_archivado:
-                        hist_7d.insert(0, resumen_dia_archivo)
-                        boveda_vip["historial_reportes_7d"] = hist_7d[:7]
-                        guardar_boveda_vip_servidor(boveda_vip)
-                    else:
-                        for idx_r, r_item in enumerate(hist_7d):
-                            if r_item.get("fecha") == str_hoy:
-                                hist_7d[idx_r] = resumen_dia_archivo
-                        guardar_boveda_vip_servidor(boveda_vip)
-
-                    col_unlock1, col_unlock2 = st.columns(2)
-                    with col_unlock1:
-                        html_vip_final = generar_boletin_html_imprimible(
-                            df_vip_hoy,
-                            "REPORTE OFICIAL VIP AUDITADO [PASO_3_BIG_DATA]",
-                            f"Efectividad Oficial: {yield_pct}% ({aciertos_vip}/{evaluados_vip} Verdes)"
-                        )
-                        st.download_button(
-                            label="🔓 📄 Descargar Boletín VIP Auditado (Imprimible / PDF)",
-                            data=html_vip_final.encode("utf-8"),
-                            file_name=f"Reporte_VIP_Auditado_MRFUTBOL_{str_hoy}.html",
-                            mime="text/html",
-                            use_container_width=True
-                        )
-                    with col_unlock2:
-                        st.download_button(
-                            label="🔓 📊 Descargar Auditoría VIP Oficial (.CSV / Excel)",
-                            data=df_vip_hoy.to_csv(index=False).encode("utf-8-sig"),
-                            file_name=f"Auditoria_VIP_MRFUTBOL_{str_hoy}.csv",
-                            mime="text/csv",
-                            use_container_width=True
-                        )
-            else:
-                st.info(
-                    "La Sala VIP está limpia y lista. Marca la plequita `☑️ Enviar a VIP (API)` en cualquier partido del Scraping en Vivo "
-                    "(como tu partido del Porto) para traer toda su radiografía [PASO_3_BIG_DATA] sin gastar llamadas de más."
-                )
-
-        # COLUMNA DERECHA: CACHÉ DE AUDITORÍA HISTÓRICA (ÚLTIMOS 7 DÍAS)
-        with col_vip_der:
-            st.markdown("""
-            <div class="audit-box-right">
-                <h4 style="margin:0 0 6px 0; color:#ffd700; font-size:15px;">🗄️ Caché de Auditoría VIP</h4>
-                <p style="margin:0; font-size:11px; color:#9ba1b0;">
-                    Memoria histórica en servidor con los reportes cerrados y verificados para auditar el Yield.
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
-
-            historial_guardado = boveda_vip.get("historial_reportes_7d", [])
-            if historial_guardado:
-                for rep_hist in historial_guardado:
-                    f_rep = rep_hist.get("fecha", "")
-                    y_rep = rep_hist.get("yield_pct", 0)
-                    v_rep = rep_hist.get("verdes", 0)
-                    t_rep = rep_hist.get("total", 0)
-                    df_h = pd.DataFrame(rep_hist.get("registros", []))
-                    with st.expander(f"📅 {f_rep} | {y_rep}% ({v_rep}/{t_rep} ✅)", expanded=False):
-                        st.caption(f"Cerrado a las {rep_hist.get('hora_cierre', '--:--')} hrs")
-                        cols_vista = [c for c in ["Partido", "Mercado", "Resultado Auditado"] if c in df_h.columns]
-                        if cols_vista:
-                            st.dataframe(df_h[cols_vista], use_container_width=True, hide_index=True)
-                        html_h = generar_boletin_html_imprimible(
-                            df_h,
-                            f"AUDITORÍA HISTÓRICA VIP ({f_rep})",
-                            f"Efectividad: {y_rep}% ({v_rep}/{t_rep} Verdes)"
-                        )
-                        st.download_button(
-                            label=f"📄 Boletín PDF ({f_rep})",
-                            data=html_h.encode("utf-8"),
-                            file_name=f"Historial_VIP_{f_rep}.html",
-                            mime="text/html",
-                            key=f"dl_html_hist_{f_rep}",
-                            use_container_width=True
-                        )
-                        st.download_button(
-                            label=f"📊 Excel/CSV ({f_rep})",
-                            data=df_h.to_csv(index=False).encode("utf-8-sig"),
-                            file_name=f"Historial_VIP_{f_rep}.csv",
-                            mime="text/csv",
-                            key=f"dl_csv_hist_{f_rep}",
-                            use_container_width=True
-                        )
-            else:
-                st.caption("🕒 En cuanto concluya el último partido seleccionado de hoy, el reporte quedará memorizado aquí automáticamente.")
-
     # -------------------------------------------------------------------------
-    # SECCIÓN 4: TERMINAL DE TRADING Y SCRAPING EN VIVO + PLEQUITA VIP
+    # SECCIÓN 4: TERMINAL DE TRADING Y SCRAPING EN VIVO + PLEQUITA SALA VIP
     # -------------------------------------------------------------------------
     with sec_scraping:
-        st.subheader("🚨 Terminal de Trading en Vivo (Mercado Over 0.5 / 1.5 + Plequita de Pase a VIP)")
+        st.subheader("🚨 Terminal de Trading en Vivo (Mercado Over 0.5 / 1.5 + Plequita de Pase a Sala VIP)")
         st.markdown(
             "**Modo Silencioso de Trading:** Los partidos **`0 - 0`** están fijos en la cima. "
-            "Cuando marques la **plequita `☑️ Enviar a VIP (API)`** a la derecha de un partido, el sistema cargará sus 8 bloques **`[PASO_3_BIG_DATA]`** "
-            "(con sus picos altos de referencia) en la **Sección Recomendada VIP**."
+            "Cuando marques la **plequita `☑️ Enviar a Sala VIP`** a la derecha de un partido, se cargará su radiografía **`[PASO_3_BIG_DATA]`** "
+            "directamente en la pestaña **`👑 5. SALA VIP MRFUTBOL`**."
         )
 
         if st.session_state.get("aviso_vip_bloqueado"):
@@ -2378,10 +2117,10 @@ def renderizar_central_mrfutbol():
                 with col_scr_plequita:
                     st.markdown("<div style='margin-top:18px;'></div>", unsafe_allow_html=True)
                     st.checkbox(
-                        "☑️ Enviar a VIP (API)",
+                        "☑️ Enviar a Sala VIP",
                         value=ya_en_vip,
                         key=f"plequita_vip_{ev_id_scr}_{ya_en_vip}",
-                        help="Extrae todos los bloques [PASO_3] de este partido sin descartarlo y lo pasa a la Sección VIP (Requiere clave Admin MR2026)",
+                        help="Pasa este partido a la pestaña 5 (Sala VIP MRFUTBOL) con todos sus bloques [PASO_3]",
                         on_change=accionar_plequita_vip,
                         args=(
                             ev_id_scr,
@@ -2400,7 +2139,7 @@ def renderizar_central_mrfutbol():
                         )
                     )
                     if ya_en_vip:
-                        st.caption("👑 **En Sala VIP [PASO_3]**")
+                        st.caption("👑 **En Sala VIP**")
 
             filas_limpias = []
             for fila in tabla_scraping:
@@ -2435,5 +2174,294 @@ def renderizar_central_mrfutbol():
                     )
         else:
             st.info("No hay partidos en vivo en este momento para evaluar en el motor de scraping.")
+
+    # -------------------------------------------------------------------------
+    # SECCIÓN 5: SALA VIP MRFUTBOL (PESTAÑA INDEPENDIENTE - SOLO PLEQUITAS)
+    # -------------------------------------------------------------------------
+    with sec_sala_vip:
+        st.subheader("👑 Sala VIP MRFUTBOL — Radiografía Profunda [PASO_3_BIG_DATA]")
+        st.caption(
+            "Aquí aparecen **únicamente** los partidos que tú seleccionas con la **plequita `☑️ Enviar a Sala VIP`** desde el Scraping en Vivo "
+            "o con el selector manual de abajo. Evalúa los bloques de tu `.INI` frente a los **Picos Altos de Referencia** con sello 100% MRFUTBOL."
+        )
+
+        col_vip_izq, col_vip_der = st.columns([3.05, 1.15])
+
+        with col_vip_izq:
+            if candidatos_pre_no_jugados:
+                col_sel_p1, col_sel_p2 = st.columns([3, 1.5])
+                with col_sel_p1:
+                    mapa_cand_pre = {c["label"]: c for c in candidatos_pre_no_jugados}
+                    sel_cand_lbl = st.selectbox(
+                        "🎯 Agregar Partido Pre >=75% (Aún NO jugado) a Sala VIP:",
+                        options=list(mapa_cand_pre.keys()),
+                        label_visibility="collapsed"
+                    )
+                with col_sel_p2:
+                    if st.button("☑️ Enviar Pre a Sala VIP", use_container_width=True):
+                        c_sel = mapa_cand_pre[sel_cand_lbl]
+                        accionar_plequita_vip(
+                            c_sel["ev_id"], c_sel["nom_local"], c_sel["nom_visita"],
+                            c_sel["nombre_liga"], c_sel["fecha_ev_local"], c_sel["prob_final"],
+                            c_sel["xg_base"], None, stats_temporada_api, c_sel["iso_fecha"],
+                            "🎯 Plequita Pre-Apuesta VIP"
+                        )
+                        st.rerun()
+
+            if st.session_state.get("aviso_vip_bloqueado"):
+                st.warning(st.session_state["aviso_vip_bloqueado"])
+
+            picks_vip_actuales = boveda_vip.get("picks_vip_hoy", {})
+            lista_mostrar_vip = list(picks_vip_actuales.values())
+
+            if lista_mostrar_vip:
+                todos_terminados = True
+                partidos_pendientes = 0
+                ultima_hora_cierre = ahora_hn_dt
+                filas_reporte_vip = []
+                aciertos_vip = 0
+                evaluados_vip = 0
+
+                for item_vip in lista_mostrar_vip:
+                    v_id = item_vip["ev_id"]
+                    origen_vip = item_vip.get("origen", "⚡ Plequita Scraping en Vivo")
+                    ficha = item_vip["ficha"]
+
+                    sello_limpio = (
+                        str(ficha.get("Sello_API", "✅ Auditoría Exclusiva MRFUTBOL Pro"))
+                        .replace("v3.football.api-sports.io", "Motor MRFUTBOL Pro")
+                        .replace("Fixture", "ID")
+                    )
+                    urgencia_limpia = (
+                        str(ficha.get("Paso3_Contexto_Urgencia", ""))
+                        .replace("Pico API:", "Pico MRFUTBOL:")
+                    )
+
+                    est_ev = mapa_estado_partidos.get(v_id, {})
+                    st_ev = est_ev.get("st_state", "pre")
+                    gol_l_v = est_ev.get("gol_l", 0)
+                    gol_v_v = est_ev.get("gol_v", 0)
+                    goles_tot_v = est_ev.get("goles_tot", 0)
+                    reloj_v = est_ev.get("reloj_txt", "En Curso")
+                    dt_inicio = est_ev.get("dt_local", ahora_hn_dt)
+
+                    cierre_estimado_partido = dt_inicio + timedelta(hours=2)
+                    if cierre_estimado_partido > ultima_hora_cierre:
+                        ultima_hora_cierre = cierre_estimado_partido
+
+                    es_linea_05 = ("Scraping" in origen_vip)
+                    meta_goles = 1 if es_linea_05 else 2
+                    mercado_nombre = "OVER 0.5 EN VIVO (Plequita)" if es_linea_05 else "OVER 1.5 GOLES (VIP)"
+
+                    if st_ev != "post":
+                        todos_terminados = False
+                        partidos_pendientes += 1
+                        if goles_tot_v >= meta_goles:
+                            estado_res_vip = f"✅ LÍNEA YA CUBIERTA EN VIVO ({gol_l_v}-{gol_v_v} al {reloj_v})"
+                        else:
+                            estado_res_vip = f"⏳ EN JUEGO / PENDIENTE ({gol_l_v}-{gol_v_v} | {reloj_v})"
+                    else:
+                        evaluados_vip += 1
+                        if goles_tot_v >= meta_goles:
+                            aciertos_vip += 1
+                            estado_res_vip = f"✅ VERDE OFICIAL ({gol_l_v}-{gol_v_v} Final)"
+                        else:
+                            estado_res_vip = f"❌ ROJO ({gol_l_v}-{gol_v_v} Final)"
+
+                    st.markdown(f"""
+                    <div class="vip-card">
+                        <div class="trading-header">
+                            <div>
+                                <span style="background:#ffd700; color:#000; padding:3px 8px; border-radius:4px; font-weight:900; font-size:11px;">{origen_vip}</span>
+                                &nbsp; <strong style="font-size:16px; color:#ffffff;">{ficha['Partido']}</strong>
+                                &nbsp; <span style="font-size:12px; color:#00ffcc; font-weight:700;">({mercado_nombre} | Prob: {ficha['Prob_Over15']})</span>
+                            </div>
+                            <div style="font-size:12px; color:#ffd700; font-weight:700;">
+                                {estado_res_vip}
+                            </div>
+                        </div>
+                        <div class="trading-metrics-grid">
+                            <div class="metric-pill">
+                                <span>🎯 [PASO_3_OFENSIVO_PRO]</span>
+                                <strong>{ficha['Paso3_Ofensivo_Pro']}</strong>
+                                <small>{ficha['Ref_Ofensivo_Pro']}</small>
+                            </div>
+                            <div class="metric-pill">
+                                <span>🥩 [EFICIENCIA / CARNICERÍA]</span>
+                                <strong>{ficha['Paso3_Eficiencia_Carniceria']}</strong>
+                                <small>{ficha['Ref_Carniceria']}</small>
+                            </div>
+                            <div class="metric-pill">
+                                <span>🧀 [VULNERABILIDAD RIVAL]</span>
+                                <strong>{ficha['Paso3_Vulnerabilidad_Rival']}</strong>
+                                <small>{ficha['Ref_Vulnerabilidad']}</small>
+                            </div>
+                            <div class="metric-pill">
+                                <span>🔥 [MOMENTUM OFENSIVO]</span>
+                                <strong>{ficha['Paso3_Momentum']}</strong>
+                                <small>{ficha['Ref_Momentum']}</small>
+                            </div>
+                            <div class="metric-pill">
+                                <span>🤝 [SISTEMA COLECTIVO 10.5]</span>
+                                <strong>{ficha['Paso3_Colectivo_105']}</strong>
+                                <small>{ficha['Ref_Colectivo']}</small>
+                            </div>
+                            <div class="metric-pill">
+                                <span>🎰 [VARIANZA / DEUDA DE GOL]</span>
+                                <strong>{ficha['Paso3_Varianza_Deuda']}</strong>
+                                <small>{ficha['Ref_Varianza']}</small>
+                            </div>
+                            <div class="metric-pill">
+                                <span>🏆 [CONTEXTO TABLA / URGENCIA]</span>
+                                <strong>{urgencia_limpia}</strong>
+                                <small>{ficha['Ref_Urgencia']}</small>
+                            </div>
+                        </div>
+                        <div style="font-size:11px; color:#9ba1b0;">
+                            {ficha['Liga']} &nbsp;|&nbsp; {sello_limpio}
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    filas_reporte_vip.append({
+                        "Origen": origen_vip,
+                        "Liga": ficha["Liga"],
+                        "Partido": ficha["Partido"],
+                        "Mercado": mercado_nombre,
+                        "Prob. Ajustada": ficha["Prob_Over15"],
+                        "Ofensivo Pro (BC/SoT/xG)": ficha["Paso3_Ofensivo_Pro"],
+                        "Calidad Tiro (Carnicería)": ficha["Paso3_Eficiencia_Carniceria"],
+                        "Vulnerabilidad Rival": ficha["Paso3_Vulnerabilidad_Rival"],
+                        "Momentum Ofensivo": ficha["Paso3_Momentum"],
+                        "Sistema Colectivo 10.5": ficha["Paso3_Colectivo_105"],
+                        "Varianza / Deuda Gol": ficha["Paso3_Varianza_Deuda"],
+                        "Contexto Tabla Urgencia": urgencia_limpia,
+                        "Resultado Auditado": estado_res_vip
+                    })
+
+                df_vip_hoy = pd.DataFrame(filas_reporte_vip)
+
+                if not todos_terminados:
+                    hora_desbloqueo_str = ultima_hora_cierre.strftime("%H:%M")
+                    st.warning(
+                        f"🔒 **CANDADO DE TRANSPARENCIA ACTIVO:** Faltan **{partidos_pendientes} partido(s)** por concluir de tu Sala VIP. "
+                        f"La descarga del Reporte Oficial se habilitará automáticamente al finalizar el último encuentro (Cierre estimado: **{hora_desbloqueo_str} hrs**)."
+                    )
+                    col_lock1, col_lock2 = st.columns(2)
+                    with col_lock1:
+                        st.button(
+                            f"🔒 Descargar Reporte VIP en PDF/HTML (Bloqueado hasta las {hora_desbloqueo_str})",
+                            disabled=True,
+                            use_container_width=True
+                        )
+                    with col_lock2:
+                        st.button(
+                            f"🔒 Descargar Auditoría VIP en Excel/CSV (Faltan {partidos_pendientes} partidos)",
+                            disabled=True,
+                            use_container_width=True
+                        )
+                else:
+                    yield_pct = round((aciertos_vip / max(1, evaluados_vip)) * 100, 1)
+                    st.success(
+                        f"🔓 **¡SELECCIÓN VIP CONCLUIDA Y AUDITADA!** Todos los partidos seleccionados han finalizado. "
+                        f"Efectividad oficial: **{yield_pct}% ({aciertos_vip} Verdes de {evaluados_vip})**. Descarga habilitada y guardada en el Caché Derecho."
+                    )
+
+                    hist_7d = boveda_vip.setdefault("historial_reportes_7d", [])
+                    ya_archivado = any(r.get("fecha") == str_hoy for r in hist_7d)
+                    resumen_dia_archivo = {
+                        "fecha": str_hoy,
+                        "hora_cierre": ahora_hn_dt.strftime("%H:%M"),
+                        "total": evaluados_vip,
+                        "verdes": aciertos_vip,
+                        "rojos": evaluados_vip - aciertos_vip,
+                        "yield_pct": yield_pct,
+                        "registros": filas_reporte_vip
+                    }
+                    if not ya_archivado:
+                        hist_7d.insert(0, resumen_dia_archivo)
+                        boveda_vip["historial_reportes_7d"] = hist_7d[:7]
+                        guardar_boveda_vip_servidor(boveda_vip)
+                    else:
+                        for idx_r, r_item in enumerate(hist_7d):
+                            if r_item.get("fecha") == str_hoy:
+                                hist_7d[idx_r] = resumen_dia_archivo
+                        guardar_boveda_vip_servidor(boveda_vip)
+
+                    col_unlock1, col_unlock2 = st.columns(2)
+                    with col_unlock1:
+                        html_vip_final = generar_boletin_html_imprimible(
+                            df_vip_hoy,
+                            "REPORTE OFICIAL SALA VIP MRFUTBOL [PASO_3_BIG_DATA]",
+                            f"Efectividad Oficial: {yield_pct}% ({aciertos_vip}/{evaluados_vip} Verdes)"
+                        )
+                        st.download_button(
+                            label="🔓 📄 Descargar Boletín Sala VIP Auditado (Imprimible / PDF)",
+                            data=html_vip_final.encode("utf-8"),
+                            file_name=f"Reporte_SalaVIP_MRFUTBOL_{str_hoy}.html",
+                            mime="text/html",
+                            use_container_width=True
+                        )
+                    with col_unlock2:
+                        st.download_button(
+                            label="🔓 📊 Descargar Auditoría Sala VIP Oficial (.CSV / Excel)",
+                            data=df_vip_hoy.to_csv(index=False).encode("utf-8-sig"),
+                            file_name=f"Auditoria_SalaVIP_MRFUTBOL_{str_hoy}.csv",
+                            mime="text/csv",
+                            use_container_width=True
+                        )
+            else:
+                st.info(
+                    "La Sala VIP está limpia. Marca la plequita `☑️ Enviar a Sala VIP` en cualquier partido del Scraping en Vivo "
+                    "para pasar su radiografía completa [PASO_3_BIG_DATA] a esta sala."
+                )
+
+        # COLUMNA DERECHA: CACHÉ DE AUDITORÍA HISTÓRICA (ÚLTIMOS 7 DÍAS)
+        with col_vip_der:
+            st.markdown("""
+            <div class="audit-box-right">
+                <h4 style="margin:0 0 6px 0; color:#ffd700; font-size:15px;">🗄️ Caché de Auditoría VIP</h4>
+                <p style="margin:0; font-size:11px; color:#9ba1b0;">
+                    Memoria histórica en servidor con los reportes cerrados y verificados para auditar el Yield.
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+
+            historial_guardado = boveda_vip.get("historial_reportes_7d", [])
+            if historial_guardado:
+                for rep_hist in historial_guardado:
+                    f_rep = rep_hist.get("fecha", "")
+                    y_rep = rep_hist.get("yield_pct", 0)
+                    v_rep = rep_hist.get("verdes", 0)
+                    t_rep = rep_hist.get("total", 0)
+                    df_h = pd.DataFrame(rep_hist.get("registros", []))
+                    with st.expander(f"📅 {f_rep} | {y_rep}% ({v_rep}/{t_rep} ✅)", expanded=False):
+                        st.caption(f"Cerrado a las {rep_hist.get('hora_cierre', '--:--')} hrs")
+                        cols_vista = [c for c in ["Partido", "Mercado", "Resultado Auditado"] if c in df_h.columns]
+                        if cols_vista:
+                            st.dataframe(df_h[cols_vista], use_container_width=True, hide_index=True)
+                        html_h = generar_boletin_html_imprimible(
+                            df_h,
+                            f"AUDITORÍA HISTÓRICA SALA VIP MRFUTBOL ({f_rep})",
+                            f"Efectividad: {y_rep}% ({v_rep}/{t_rep} Verdes)"
+                        )
+                        st.download_button(
+                            label=f"📄 Boletín PDF ({f_rep})",
+                            data=html_h.encode("utf-8"),
+                            file_name=f"Historial_VIP_{f_rep}.html",
+                            mime="text/html",
+                            key=f"dl_html_hist_{f_rep}",
+                            use_container_width=True
+                        )
+                        st.download_button(
+                            label=f"📊 Excel/CSV ({f_rep})",
+                            data=df_h.to_csv(index=False).encode("utf-8-sig"),
+                            file_name=f"Historial_VIP_{f_rep}.csv",
+                            mime="text/csv",
+                            key=f"dl_csv_hist_{f_rep}",
+                            use_container_width=True
+                        )
+            else:
+                st.caption("🕒 En cuanto concluya el último partido seleccionado de hoy, el reporte quedará memorizado aquí automáticamente.")
 
 renderizar_central_mrfutbol()
