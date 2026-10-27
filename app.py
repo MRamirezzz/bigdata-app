@@ -5,6 +5,8 @@ import requests
 import unicodedata
 import json
 import os
+import re
+import glob
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -66,25 +68,60 @@ if "aviso_vip_bloqueado" not in st.session_state:
     st.session_state["aviso_vip_bloqueado"] = ""
 
 # =============================================================================
-# 2. BÓVEDAS PERSISTENTES EN EL SERVIDOR (LIMPIEZA DE TEXTOS EXTERNOS Y AUTO-FILTROS)
+# 2. BÓVEDAS PERSISTENTES EN EL SERVIDOR + PARTICIÓN SEMANAL DE BITÁCORA
 # =============================================================================
 ARCHIVO_BITACORA_OCULTA = ".boveda_ml_over05_mrfutbol.json"
 ARCHIVO_BOVEDA_VIP_API = ".boveda_vip_apifootball_mrfutbol.json"
 
+def obtener_etiqueta_semana_actual():
+    ahora_hn = datetime.utcnow() - timedelta(hours=6)
+    num_semana = ahora_hn.strftime("%V")
+    anio_actual = ahora_hn.strftime("%Y")
+    return f"{anio_actual}-Semana-{num_semana}", f"Bitacora_VIP_{anio_actual}_Semana_{num_semana}.csv"
+
 @st.cache_resource
 def obtener_boveda_ml_servidor():
+    boveda_cargada = {}
     if os.path.exists(ARCHIVO_BITACORA_OCULTA):
         try:
             with open(ARCHIVO_BITACORA_OCULTA, "r", encoding="utf-8") as f:
-                return json.load(f)
+                boveda_cargada = json.load(f)
         except Exception:
-            return {}
-    return {}
+            boveda_cargada = {}
+
+    # Si existen archivos CSV semanales o históricos en la carpeta, los asimila en la memoria de aprendizaje
+    archivos_csv = glob.glob("Bitacora_*.csv")
+    for arc in archivos_csv:
+        try:
+            df_arc = pd.read_csv(arc)
+            for idx, row in df_arc.iterrows():
+                clave_sintetica = f"hist_{os.path.basename(arc)}_{idx}_{row.get('Partido', '')}"
+                if clave_sintetica not in boveda_cargada and not any(
+                    r.get("Partido") == row.get("Partido") and str(r.get("Fecha_Hora", ""))[:10] == str(row.get("Fecha_Hora", ""))[:10]
+                    for r in boveda_cargada.values()
+                ):
+                    boveda_cargada[clave_sintetica] = row.to_dict()
+        except Exception:
+            pass
+
+    return boveda_cargada
 
 def guardar_boveda_ml_servidor(boveda):
     try:
         with open(ARCHIVO_BITACORA_OCULTA, "w", encoding="utf-8") as f:
             json.dump(boveda, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+    # Guardado automático fragmentado por Semana/Jornada para evitar saturación
+    try:
+        etiqueta_sem, nombre_csv_sem = obtener_etiqueta_semana_actual()
+        registros_semana = [
+            v for v in boveda.values()
+            if v.get("Semana_Jornada", etiqueta_sem) == etiqueta_sem
+        ]
+        if registros_semana:
+            pd.DataFrame(registros_semana).to_csv(nombre_csv_sem, index=False, encoding="utf-8-sig")
     except Exception:
         pass
 
@@ -517,6 +554,73 @@ def obtener_fecha_local_evento(iso_fecha):
         return "1970-01-01", "Programado", "--:--", datetime(1970, 1, 1)
 
 # =============================================================================
+# 🧠 MOTOR DE APRENDIZAJE: CRUCE DE BITÁCORA (ÚLTIMAS 2 FECHAS VS PRE-APUESTA)
+# =============================================================================
+def _extraer_tot_numero(texto):
+    if not texto:
+        return 0
+    m = re.search(r"Tot:\s*(\d+)", str(texto))
+    return int(m.group(1)) if m else 0
+
+def calcular_momentum_bitacora_2_fechas(nom_local, nom_visita):
+    """
+    Cruza los datos almacenados en la bitácora (comportamiento real en vivo de las
+    últimas 2 fechas de cada equipo) contra el promedio estándar pre-apuesta.
+    """
+    registros = list(boveda_ml_05.values())
+    if not registros:
+        return 0.0, 0.0, "🧠 Sin historial en bitácora aún"
+
+    partidos_loc = []
+    partidos_vis = []
+
+    for r in registros:
+        cruce = str(r.get("Partido", ""))
+        partes = cruce.split(" vs ")
+        if len(partes) == 2:
+            eq1, eq2 = partes[0].strip(), partes[1].strip()
+            if nombres_coinciden(nom_local, eq1) or nombres_coinciden(nom_local, eq2):
+                partidos_loc.append(r)
+            if nombres_coinciden(nom_visita, eq1) or nombres_coinciden(nom_visita, eq2):
+                partidos_vis.append(r)
+
+    ultimos_loc = partidos_loc[-2:]
+    ultimos_vis = partidos_vis[-2:]
+    muestra_cruzada = ultimos_loc + ultimos_vis
+
+    if not muestra_cruzada:
+        return 0.0, 0.0, "🧠 Sin registros previos en bitácora"
+
+    tiros_reales = [_extraer_tot_numero(m.get("Disparos_Al_Activar", "")) for m in muestra_cruzada]
+    arco_reales = [_extraer_tot_numero(m.get("Arco_Al_Activar", "")) for m in muestra_cruzada]
+    verdes = sum(1 for m in muestra_cruzada if "GANADA" in str(m.get("Estado_Apuesta_05", "")))
+    rojos = sum(1 for m in muestra_cruzada if "FALLO" in str(m.get("Estado_Apuesta_05", "")))
+
+    prom_tiros = sum(tiros_reales) / max(1, len(tiros_reales))
+    prom_arco = sum(arco_reales) / max(1, len(arco_reales))
+    n_juegos = len(muestra_cruzada)
+
+    bono_prob = 0.0
+    bono_xg = 0.0
+
+    if prom_tiros >= 6.0 and rojos == 0:
+        bono_prob = 4.5
+        bono_xg = 0.22
+        etiqueta = f"🧠 Bitácora ({n_juegos}J): 🔥 Pólvora Real ({prom_tiros:.1f} Disp / {prom_arco:.1f} Arco) +{bono_prob}% Pre"
+    elif prom_tiros >= 4.8 and verdes >= 1 and rojos == 0:
+        bono_prob = 2.5
+        bono_xg = 0.12
+        etiqueta = f"🧠 Bitácora ({n_juegos}J): ⚡ Ritmo Firme ({prom_tiros:.1f} Disp | {verdes}✅) +{bono_prob}% Pre"
+    elif rojos >= 1 or prom_tiros <= 3.5:
+        bono_prob = -4.5
+        bono_xg = -0.20
+        etiqueta = f"🧠 Bitácora ({n_juegos}J): ❄️ Alerta Bajo Fuego ({prom_tiros:.1f} Disp | {rojos}❌) {bono_prob}% Pre"
+    else:
+        etiqueta = f"🧠 Bitácora ({n_juegos}J): ⚖️ Estable ({prom_tiros:.1f} Disp)"
+
+    return bono_prob, bono_xg, etiqueta
+
+# =============================================================================
 # MOTOR PRO MRFUTBOL [PASO_3_BIG_DATA] (100% MARCA BLANCA Y SOLO CON PLEQUITA)
 # =============================================================================
 def registrar_consulta_motor_pro(headers_resp=None):
@@ -687,6 +791,8 @@ def analizar_partido_profundo_mrfutbol(
             except Exception:
                 pass
 
+    bono_bit_prob, _, txt_bit_vip = calcular_momentum_bitacora_2_fechas(nom_local, nom_visita)
+
     paso3_ofensivo = (
         f"Big Chances: {big_chances_est} | SoT: {sot_proyectado} | xG (1.2x Loc): {xg_combinado_12}"
     )
@@ -709,12 +815,12 @@ def analizar_partido_profundo_mrfutbol(
     paso3_vulnerabilidad = f"xGA Rival: {xga_rival} | Valla Invicta: {clean_sheet_rival_pct}% ({tag_vuln})"
     ref_vulnerabilidad = f"Pico Ref: xGA >= {PASO_3_PICOS_REF['MIN_xGA_CONCEDIDO_RIVAL']} | Valla Invicta <= 25%"
 
-    prob_con_bono = round(min(96.0, prob_pre + (5.0 if racha_goleadora_activa else 0.0)), 1)
-    if racha_goleadora_activa:
-        paso3_momentum = f"🔥 Pólvora Encendida (+5% Bono -> {prob_con_bono}%)"
+    prob_con_bono = round(min(96.0, max(42.0, prob_pre + (5.0 if racha_goleadora_activa else 0.0))), 1)
+    if racha_goleadora_activa or bono_bit_prob > 0:
+        paso3_momentum = f"🔥 Pólvora Activa ({prob_con_bono}%) | {txt_bit_vip}"
     else:
-        paso3_momentum = f"⚖️ Ritmo Estándar ({prob_pre}% Sin Bono) | {form_h_str} vs {form_a_str}"
-    ref_momentum = "Regla: 2+ goles en 3 juegos seguidos (+5% Bono)"
+        paso3_momentum = f"⚖️ {txt_bit_vip} | {form_h_str} vs {form_a_str}"
+    ref_momentum = "Cruce: Racha de Temporada + Últimas 2 Fechas en Bitácora"
 
     goleadores_unicos = 4 if (gf_l + gf_v) >= 2.8 else 3
     asistentes_unicos = 5 if (gf_l + gf_v) >= 2.6 else 4
@@ -1005,9 +1111,17 @@ def calcular_pre_poisson_real(nom_local, nom_visita, stats_temporada):
     if cer_l or cer_v:
         xg_base = max(1.25, round(xg_base - 0.30, 2))
 
+    # CRUCE INTELIGENTE: Comportamiento real de las últimas 2 fechas en Bitácora
+    bono_prob_bit, bono_xg_bit, tag_bitacora = calcular_momentum_bitacora_2_fechas(nom_local, nom_visita)
+    xg_base = max(1.15, round(xg_base + bono_xg_bit, 2))
+
     prob_poisson = (1 - poisson.cdf(1, xg_base)) * 100
-    prob_final = round(min(95.0, max(42.0, prob_poisson)), 1)
+    prob_final = round(min(95.0, max(42.0, prob_poisson + bono_prob_bit)), 1)
     cuota_justa = round(100 / prob_final, 2)
+
+    if "Sin " not in tag_bitacora:
+        fuente_tag = f"{fuente_tag} | {tag_bitacora}"
+
     return prob_final, cuota_justa, xg_base, fuente_tag
 
 def calcular_tasas_tiempos_y_franja(xg_total_pre, disparos_tot, tiros_arco, corneres_tot, min_actual):
@@ -1051,10 +1165,13 @@ def actualizar_bitacora_oculta_over05(
     senal_activada, motivo_senal, detalles_partido
 ):
     hubo_cambio = False
-    ahora_str = (datetime.utcnow() - timedelta(hours=6)).strftime("%Y-%m-%d %H:%M")
+    ahora_dt = datetime.utcnow() - timedelta(hours=6)
+    ahora_str = ahora_dt.strftime("%Y-%m-%d %H:%M")
+    etiqueta_semana, _ = obtener_etiqueta_semana_actual()
 
     if senal_activada and goles_tot == 0 and min_num >= 18 and ev_id not in boveda_ml_05:
         boveda_ml_05[ev_id] = {
+            "Semana_Jornada": etiqueta_semana,
             "Fecha_Hora": ahora_str,
             "Liga": nombre_liga,
             "Partido": nombre_cruce,
@@ -1078,16 +1195,18 @@ def actualizar_bitacora_oculta_over05(
 
     if ev_id in boveda_ml_05:
         reg = boveda_ml_05[ev_id]
-        if goles_tot >= 1 and reg["Estado_Apuesta_05"].startswith("⏳"):
+        if "Semana_Jornada" not in reg:
+            reg["Semana_Jornada"] = etiqueta_semana
+        if goles_tot >= 1 and str(reg.get("Estado_Apuesta_05", "")).startswith("⏳"):
             min_gol = extraer_primer_minuto_gol(detalles_partido, min_num)
             min_despues_18 = max(1, min_gol - 18)
-            min_desde_alerta = max(1, min_gol - int(reg["Min_Alerta"]))
+            min_desde_alerta = max(1, min_gol - int(reg.get("Min_Alerta", 18)))
             reg["Estado_Apuesta_05"] = "✅ GANADA (VERDE)"
             reg["Minuto_Gol"] = f"{min_gol}'"
             reg["Minutos_Despues_De_18"] = f"+{min_despues_18} min después del 18'"
-            reg["Tiempo_Espera_Desde_Alerta"] = f"+{min_desde_alerta} min tras alerta ({reg['Min_Alerta']}')"
+            reg["Tiempo_Espera_Desde_Alerta"] = f"+{min_desde_alerta} min tras alerta ({reg.get('Min_Alerta', 18)}')"
             hubo_cambio = True
-        elif st_state == "post" and goles_tot == 0 and reg["Estado_Apuesta_05"] != "❌ FALLO (0-0 Final)":
+        elif st_state == "post" and goles_tot == 0 and reg.get("Estado_Apuesta_05") != "❌ FALLO (0-0 Final)":
             reg["Estado_Apuesta_05"] = "❌ FALLO (0-0 Final)"
             reg["Minuto_Gol"] = "Sin Gol (90')"
             reg["Minutos_Despues_De_18"] = "No cubrió línea"
@@ -1132,6 +1251,32 @@ def extraer_metricas_partido_reales(loc, vis):
         "esquinas_l": esquinas_l, "esquinas_v": esquinas_v, "esquinas_tot": esquinas_l + esquinas_v,
         "pos_l": pos_l, "pos_v": pos_v
     }
+
+def evaluar_gatillo_quirurgico_05(prob_pre, toth_tot, max_disp_equipo, tmeta_tot, min_num, tasa_38_45):
+    """
+    Aplica el Manual Táctico MRFUTBOL:
+    - Zona Verde (>=75%): gatillo flexible.
+    - Zona Amarilla (70% - 74.9%): exige al menos 5 disparos totales o 2 tiros a puerta con dominio.
+    - Zona Roja (<70%): exige fuerza bruta (>=6 disparos totales o >=5 con >=2 al arco). Ignora córneres sin tiros.
+    """
+    if prob_pre >= 75.0:
+        return (
+            max_disp_equipo >= 3
+            or tmeta_tot >= 2
+            or toth_tot >= 4
+            or (35 <= min_num <= 45 and tasa_38_45 >= 52.0 and toth_tot >= 3)
+        )
+    elif prob_pre >= 70.0:
+        return (
+            toth_tot >= 5
+            or (max_disp_equipo >= 3 and tmeta_tot >= 2)
+            or (35 <= min_num <= 45 and tasa_38_45 >= 54.0 and toth_tot >= 4)
+        )
+    else:
+        return (
+            toth_tot >= 6
+            or (toth_tot >= 5 and tmeta_tot >= 2)
+        )
 
 def generar_boletin_html_imprimible(df_datos, titulo_reporte, subtitulo_reporte):
     fecha_emision = (datetime.utcnow() - timedelta(hours=6)).strftime("%d/%m/%Y %H:%M")
@@ -1187,7 +1332,7 @@ def enviar_bitacora_por_correo_privado(df_bitacora, password_app_gmail):
     cuerpo = (
         f"Hola Jefe Miguel Ramirez,\n\n"
         f"Adjunto el reporte privado de recolección en vivo del mercado Over 0.5 (Minuto 18+).\n"
-        f"Total de partidos auditados en el servidor: {len(df_bitacora)}\n\n"
+        f"Total de partidos auditados en este envío: {len(df_bitacora)}\n\n"
         f"Este reporte es confidencial y exclusivo para el entrenamiento del algoritmo MRFUTBOL."
     )
     msg.attach(MIMEText(cuerpo, "plain", "utf-8"))
@@ -1376,6 +1521,7 @@ def renderizar_central_mrfutbol():
     ahora_hn_str = ahora_hn_dt.strftime("%d/%m/%Y %H:%M:%S")
     str_hoy = ahora_hn_dt.strftime("%Y-%m-%d")
     str_manana = (ahora_hn_dt + timedelta(days=1)).strftime("%Y-%m-%d")
+    etiqueta_sem_actual, archivo_csv_sem_actual = obtener_etiqueta_semana_actual()
 
     limpiar_textos_externos_boveda(boveda_vip)
 
@@ -1456,13 +1602,14 @@ def renderizar_central_mrfutbol():
                 equipo_dominante = nom_l if toth_l >= toth_v else nom_v
 
                 tasa_1t, tasa_2t, tasa_38_45 = calcular_tasas_tiempos_y_franja(xg_pre, toth_tot, tmeta_tot, esq_tot, min_num)
+                cumple_gatillo = evaluar_gatillo_quirurgico_05(prob_pre, toth_tot, max_disp_equipo, tmeta_tot, min_num, tasa_38_45)
                 senal_bitacora_05 = (
                     (st_state == "in" or es_ht)
                     and goles_tot == 0
                     and (min_num >= 18 or es_ht)
-                    and (max_disp_equipo >= 3 or tmeta_tot >= 2 or toth_tot >= 5 or (35 <= min_num <= 45 and tasa_38_45 >= 52.0 and toth_tot >= 3))
+                    and cumple_gatillo
                 )
-                motivo_bitacora = f"{equipo_dominante} {max_disp_equipo} Disp ({toth_tot} Tot, {tmeta_tot} Arco, {esq_tot} Córn)"
+                motivo_bitacora = f"{equipo_dominante} {max_disp_equipo} Disp ({toth_tot} Tot, {tmeta_tot} Arco, {esq_tot} Córn | Pre {prob_pre}%)"
                 actualizar_bitacora_oculta_over05(
                     ev_id, nombre_liga, nombre_cruce, st_state, es_ht, min_num,
                     goles_tot, stats, prob_pre, tasa_1t, tasa_2t, tasa_38_45,
@@ -1492,12 +1639,12 @@ def renderizar_central_mrfutbol():
                     "rojas": rojas_actuales
                 })
 
-    # 5 PESTAÑAS INDEPENDIENTES (SALA VIP SEPARADA DE PRE-APUESTAS)
+    # 5 PESTAÑAS INDEPENDIENTES (CON TÍTULO ACTUALIZADO EN PESTAÑA 4)
     sec_resultados, sec_en_vivo, sec_apuestas, sec_scraping, sec_sala_vip = st.tabs([
         "⚽ 1. CARTELERA DE HOY", 
         "🔴 2. PARTIDOS EN VIVO", 
         "🎯 3. PRE-APUESTAS OVER 1.5", 
-        "🚨 4. SCRAPING Y TERMINAL 0.5",
+        "🚨 4. TERMINAL EN VIVO 0.5",
         "👑 5. SALA VIP MRFUTBOL"
     ])
 
@@ -1555,18 +1702,44 @@ def renderizar_central_mrfutbol():
                             st.session_state["admin_autenticado"] = False
                             st.rerun()
 
-                    registros_ml = list(boveda_ml_05.values())
-                    st.caption(f"📊 Señales Over 0.5 recolectadas (Min 18+): **{len(registros_ml)}**")
+                    registros_ml_todos = list(boveda_ml_05.values())
+                    semanas_disponibles = sorted(
+                        list({r.get("Semana_Jornada", etiqueta_sem_actual) for r in registros_ml_todos}),
+                        reverse=True
+                    )
+                    if not semanas_disponibles:
+                        semanas_disponibles = [etiqueta_sem_actual]
+
+                    filtro_sem_bitacora = st.selectbox(
+                        "🗂️ Filtrar Bitácora por Jornada/Semana (Anti-Saturación):",
+                        options=[f"📅 Jornada Actual ({etiqueta_sem_actual})", "🌎 Historial Completo (Rumbo a 300)"] + semanas_disponibles,
+                        index=0
+                    )
+
+                    if filtro_sem_bitacora.startswith("📅"):
+                        registros_ml = [r for r in registros_ml_todos if r.get("Semana_Jornada", etiqueta_sem_actual) == etiqueta_sem_actual]
+                        nombre_descarga_csv = archivo_csv_sem_actual
+                    elif filtro_sem_bitacora.startswith("🌎"):
+                        registros_ml = registros_ml_todos
+                        nombre_descarga_csv = f"Bitacora_Completa_Over05_{str_hoy}.csv"
+                    else:
+                        registros_ml = [r for r in registros_ml_todos if r.get("Semana_Jornada", etiqueta_sem_actual) == filtro_sem_bitacora]
+                        nombre_descarga_csv = f"Bitacora_VIP_{filtro_sem_bitacora}.csv"
+
+                    st.caption(
+                        f"📊 En vista actual: **{len(registros_ml)}** | "
+                        f"🧠 Memoria Total Aprendizaje: **{len(registros_ml_todos)} / 300**"
+                    )
                     if registros_ml:
                         df_ml_privado = pd.DataFrame(registros_ml)
-                        ganadas_ml = sum(1 for r in registros_ml if "GANADA" in r["Estado_Apuesta_05"])
-                        fallos_ml = sum(1 for r in registros_ml if "FALLO" in r["Estado_Apuesta_05"])
-                        st.metric("🎯 Efectividad Over 0.5", f"{ganadas_ml} Verdes / {fallos_ml} Rojos")
+                        ganadas_ml = sum(1 for r in registros_ml if "GANADA" in str(r.get("Estado_Apuesta_05", "")))
+                        fallos_ml = sum(1 for r in registros_ml if "FALLO" in str(r.get("Estado_Apuesta_05", "")))
+                        st.metric("🎯 Efectividad Over 0.5 (Vista)", f"{ganadas_ml} Verdes / {fallos_ml} Rojos")
 
                         st.download_button(
-                            label="📥 Descargar Bitácora Privada (.CSV)",
+                            label=f"📥 Descargar Bitácora ({nombre_descarga_csv})",
                             data=df_ml_privado.to_csv(index=False).encode("utf-8-sig"),
-                            file_name=f"Bitacora_Privada_Over05_{str_hoy}.csv",
+                            file_name=nombre_descarga_csv,
                             mime="text/csv",
                             use_container_width=True
                         )
@@ -1586,7 +1759,7 @@ def renderizar_central_mrfutbol():
                             else:
                                 st.warning("Ingresa tu Clave de Aplicación de Gmail o usa el botón de descarga directa arriba.")
                     else:
-                        st.info("Aún no se han disparado señales de Over 0.5 (Min 18+) en esta jornada.")
+                        st.info("Aún no se han disparado señales de Over 0.5 (Min 18+) en esta semana seleccionada.")
                 else:
                     st.caption("🔒 Exclusivo para administración o activación de Plequita VIP. Solicita acceso a: angelramirezzmiguel2@gmail.com")
 
@@ -1825,11 +1998,11 @@ def renderizar_central_mrfutbol():
             st.info("No hay partidos en curso en este preciso instante en las 19 ligas.")
 
     # -------------------------------------------------------------------------
-    # SECCIÓN 3: PRE-APUESTAS OVER 1.5 (LIMPIA Y SIN AUTO-ESCANEO)
+    # SECCIÓN 3: PRE-APUESTAS OVER 1.5 (CON APRENDIZAJE DE BITÁCORA INTEGRADO)
     # -------------------------------------------------------------------------
     with sec_apuestas:
         st.subheader("🎯 Laboratorio Pre-Apuesta Over 1.5 y Tasas por Tiempo (1T / 2T)")
-        st.caption("Cruza los goles reales de temporada con la base MRFUTBOL y desglosa la probabilidad de gol en el 1er Tiempo, cierre del 1T (38'-45') y 2do Tiempo.")
+        st.caption("Cruza los goles reales de temporada + el aprendizaje real de las últimas 2 fechas en Bitácora, desglosando probabilidades para 1T, cierre (38'-45') y 2T.")
 
         col_f1, col_f2 = st.columns([2.5, 1.5])
         with col_f1:
@@ -1866,12 +2039,12 @@ def renderizar_central_mrfutbol():
                     tasa_1t, tasa_2t, tasa_38_45 = calcular_tasas_tiempos_y_franja(xg_base, 0, 0, 0, 0)
 
                     if prob_final >= umbral_minimo:
-                        if 64.0 <= prob_final <= 75.5:
-                            veredicto = "💎 ENTRAR OVER 1.5 (Cuota de Valor / Stake 2%)"
-                        elif prob_final > 75.5:
-                            veredicto = "🟢 ENTRAR OVER 1.5 (Fijo Alta Probabilidad / Stake 3%)"
+                        if prob_final < 70.0:
+                            veredicto = "🔴 ZONA ROJA (<70%): Exigir 6+ Disparos en Vivo (Cazar 0.5 al Min 25-30)"
+                        elif 70.0 <= prob_final <= 75.5:
+                            veredicto = "💎 ENTRAR OVER 1.5 (Cuota de Valor / En Vivo exigir 5+ Disp)"
                         else:
-                            veredicto = "🟡 VALOR MODERADO (Ideal Operar 0.5 en Vivo)"
+                            veredicto = "🟢 ENTRAR OVER 1.5 (Zona Verde Alta Probabilidad / Stake 3%)"
 
                         reporte_pre.append({
                             "Fecha": fecha_legible,
@@ -1883,7 +2056,7 @@ def renderizar_central_mrfutbol():
                             "⚡ Cierre 38'-45'": f"{tasa_38_45}%",
                             "🔥 Gol 2T": f"{tasa_2t}%",
                             "Cuota Justa": cuota_justa,
-                            "Respaldo": fuente_tag,
+                            "Respaldo + Aprendizaje (2J)": fuente_tag,
                             "Veredicto": veredicto
                         })
 
@@ -1930,10 +2103,10 @@ def renderizar_central_mrfutbol():
             st.info("No hay partidos por iniciar que cumplan el filtro actual. Puedes bajar el deslizador de porcentaje.")
 
     # -------------------------------------------------------------------------
-    # SECCIÓN 4: TERMINAL DE TRADING Y SCRAPING EN VIVO + PLEQUITA SALA VIP
+    # SECCIÓN 4: TERMINAL EN VIVO 0.5 + PLEQUITA SALA VIP
     # -------------------------------------------------------------------------
     with sec_scraping:
-        st.subheader("🚨 Terminal de Trading en Vivo (Mercado Over 0.5 / 1.5 + Plequita de Pase a Sala VIP)")
+        st.markdown("### 🚨 4. TERMINAL EN VIVO 0.5")
         st.markdown(
             "**Modo Silencioso de Trading:** Los partidos **`0 - 0`** están fijos en la cima. "
             "Cuando marques la **plequita `☑️ Enviar a Sala VIP`** a la derecha de un partido, se cargará su radiografía **`[PASO_3_BIG_DATA]`** "
@@ -1968,6 +2141,7 @@ def renderizar_central_mrfutbol():
                     goles_tot = goles_l + goles_v
 
                     prob_pre, _, xg_pre, _ = calcular_pre_poisson_real(nom_l_full, nom_v_full, stats_temporada_api)
+                    _, _, txt_bit_vivo = calcular_momentum_bitacora_2_fechas(nom_l_full, nom_v_full)
                     stats_raw = extraer_metricas_partido_reales(loc, vis)
                     sello_val, nivel_val, stats, st_f2_match = cruzar_validacion_doble_fuente(
                         nom_l_full, nom_v_full, stats_raw, lista_segunda_fuente
@@ -1988,60 +2162,74 @@ def renderizar_central_mrfutbol():
 
                     clase_caja_veredicto = "veredicto-box-wait"
                     es_oportunidad_caliente = False
+                    nota_aprendizaje = f" | {txt_bit_vivo}" if "Sin " not in txt_bit_vivo else ""
 
                     if goles_tot == 0:
                         if min_num < 18 and not es_ht:
                             if posesion_pareja and tmeta_tot <= 1 and esq_tot <= 2:
                                 veredicto_vivo = (
                                     f"⏳ Min {min_num}' (Estudio Parejo: Pos {pos_l}%-{pos_v}%, {tmeta_tot} Arco, {esq_tot} Córn). "
-                                    f"AGUANTAR: Estos rivales registran {tasa_1t}% Gol en 1T (Pico 38'-45': {tasa_38_45}%) y {tasa_2t}% en 2T. Esperar min 18+."
+                                    f"AGUANTAR: Estos rivales registran {tasa_1t}% Gol en 1T (Pico 38'-45': {tasa_38_45}%) y {tasa_2t}% en 2T. Esperar min 18+{nota_aprendizaje}."
                                 )
                             else:
                                 veredicto_vivo = (
                                     f"⚡ Arranque con Ritmo ({toth_tot} Disp, {tmeta_tot} Arco, {esq_tot} Córn) | "
-                                    f"Tasa 1T: {tasa_1t}% (Franja 38'-45': {tasa_38_45}%) | Tasa 2T: {tasa_2t}%. Esperando confirmación min 18."
+                                    f"Tasa 1T: {tasa_1t}% (Franja 38'-45': {tasa_38_45}%) | Tasa 2T: {tasa_2t}%. Esperando confirmación min 18{nota_aprendizaje}."
                                 )
                         else:
-                            if max_disp_equipo >= 3 or tmeta_tot >= 2 or toth_tot >= 5 or (35 <= min_num <= 45 and tasa_38_45 >= 52.0 and toth_tot >= 3):
+                            cumple_gatillo_vivo = evaluar_gatillo_quirurgico_05(
+                                prob_pre, toth_tot, max_disp_equipo, tmeta_tot, min_num, tasa_38_45
+                            )
+                            if cumple_gatillo_vivo:
                                 es_oportunidad_caliente = True
                                 clase_caja_veredicto = "veredicto-box-hot"
 
                                 if 35 <= min_num <= 45 and not es_ht:
                                     veredicto_vivo = (
                                         f"🚨 ¡ENTRAR OVER 0.5 (ZONA CALIENTE 38'-45')! {equipo_dominante} suma {max_disp_equipo} disp "
-                                        f"(Tot: {toth_tot} Disp, {tmeta_tot} Arco, {esq_tot} Córn) 👉 Pico de Cierre 1T: {tasa_38_45}% | Respaldo 2T: {tasa_2t}%."
+                                        f"(Tot: {toth_tot} Disp, {tmeta_tot} Arco, {esq_tot} Córn) 👉 Pico de Cierre 1T: {tasa_38_45}% | Respaldo 2T: {tasa_2t}% (Cazar cuota >=1.10){nota_aprendizaje}."
                                     )
                                 elif es_ht or min_num > 45:
                                     veredicto_vivo = (
                                         f"🚨 ¡ENTRAR AL OVER 0.5 GOLES EN 2T! ({equipo_dominante} lleva {max_disp_equipo} disp | "
-                                        f"Tot: {toth_tot} Disp, {tmeta_tot} Arco, {esq_tot} Córn) 👉 ¡SIN MIEDO AL 0-0! Tasa de Gol en 2do Tiempo: {tasa_2t}%."
+                                        f"Tot: {toth_tot} Disp, {tmeta_tot} Arco, {esq_tot} Córn) 👉 ¡SIN MIEDO AL 0-0! Tasa de Gol en 2do Tiempo: {tasa_2t}%{nota_aprendizaje}."
                                     )
                                 else:
                                     veredicto_vivo = (
                                         f"🚨 ¡ENTRAR AL OVER 0.5 GOLES! ({equipo_dominante} ya suma {max_disp_equipo} disp | "
-                                        f"Tot: {toth_tot} Disp, {tmeta_tot} Arco, {esq_tot} Córn) 👉 Tasa 1T: {tasa_1t}% (Cierre 38'-45': {tasa_38_45}%) | Tasa 2T: {tasa_2t}%."
+                                        f"Tot: {toth_tot} Disp, {tmeta_tot} Arco, {esq_tot} Córn) 👉 Tasa 1T: {tasa_1t}% (Cierre 38'-45': {tasa_38_45}%) | Tasa 2T: {tasa_2t}% (Cazar cuota >=1.10){nota_aprendizaje}."
                                     )
                             else:
-                                if tasa_38_45 >= 48.0 or tasa_2t >= 74.0:
+                                if prob_pre < 70.0 and esq_tot >= 3 and toth_tot < 5:
                                     veredicto_vivo = (
-                                        f"⏸️ Trámite Trabado al {reloj_txt} (Pos {pos_l}%-{pos_v}%, {tmeta_tot} Arco, {esq_tot} Córn). "
-                                        f"AGUANTAR CUOTA: Rivales fuertes en el cierre 38'-45' ({tasa_38_45}%) y en el 2T ({tasa_2t}%). Esperar que suba el momio."
+                                        f"🚩 ESPEJISMO DE CÓRNERES EN ZONA ROJA (Pre {prob_pre}% < 70%): Llevan {esq_tot} Córn pero solo {toth_tot} Disp. "
+                                        f"NO ENTRAR AÚN: Exigir 6+ disparos reales o madurar cuota al min 30'{nota_aprendizaje}."
+                                    )
+                                elif prob_pre < 70.0:
+                                    veredicto_vivo = (
+                                        f"🔴 ZONA ROJA (<70% Pre | Llevan {toth_tot} Disp, {tmeta_tot} Arco): Exigir mínimo 6 Disparos Totales "
+                                        f"y madurar momio (>=1.10) rumbo al min 30' | Tasa 2T: {tasa_2t}%{nota_aprendizaje}."
+                                    )
+                                elif tasa_38_45 >= 48.0 or tasa_2t >= 74.0:
+                                    veredicto_vivo = (
+                                        f"⏸️ Trámite Trabado al {reloj_txt} (Pos {pos_l}%-{pos_v}%, {toth_tot} Disp, {tmeta_tot} Arco, {esq_tot} Córn). "
+                                        f"AGUANTAR CUOTA: Rivales fuertes en el cierre 38'-45' ({tasa_38_45}%) y en el 2T ({tasa_2t}%). Esperar que suba el momio{nota_aprendizaje}."
                                     )
                                 else:
                                     veredicto_vivo = (
                                         f"🚫 PRECAUCIÓN / NO ENTRAR AÚN ({toth_tot} Disp, {tmeta_tot} Arco, {esq_tot} Córn) | "
-                                        f"Ritmo bajo en cancha. Solo operar si despiertan los disparos en el 2T ({tasa_2t}%)."
+                                        f"Ritmo bajo en cancha. Solo operar si despiertan los disparos en el 2T ({tasa_2t}%){nota_aprendizaje}."
                                     )
                     elif goles_tot == 1:
                         if min_num <= 82 and (max_disp_equipo >= 3 or tmeta_tot >= 3 or toth_tot >= 6):
                             clase_caja_veredicto = "veredicto-box-hot"
                             veredicto_vivo = (
                                 f"🔥 ¡OVER 0.5 COBRADO! Oportunidad en OVER 1.5 GOLES ({toth_tot} Disp, {tmeta_tot} Arco, {esq_tot} Córn | "
-                                f"Tasa de Gol en 2T: {tasa_2t}%)."
+                                f"Tasa de Gol en 2T: {tasa_2t}%){nota_aprendizaje}."
                             )
                         else:
                             clase_caja_veredicto = "veredicto-box-green"
-                            veredicto_vivo = f"✅ ¡OVER 0.5 YA COBRADO EN VERDE ({goles_l}-{goles_v})! Ritmo moderado ({toth_tot} Disp | Potencial 2T: {tasa_2t}%)."
+                            veredicto_vivo = f"✅ ¡OVER 0.5 YA COBRADO EN VERDE ({goles_l}-{goles_v})! Ritmo moderado ({toth_tot} Disp | Potencial 2T: {tasa_2t}%){nota_aprendizaje}."
                     else:
                         clase_caja_veredicto = "veredicto-box-green"
                         veredicto_vivo = f"✅ ¡LÍNEAS OVER 0.5 Y OVER 1.5 COBRADAS EN VERDE! ({goles_l}-{goles_v})"
@@ -2173,7 +2361,7 @@ def renderizar_central_mrfutbol():
                         use_container_width=True
                     )
         else:
-            st.info("No hay partidos en vivo en este momento para evaluar en el motor de scraping.")
+            st.info("No hay partidos en vivo en este momento para evaluar en el Terminal en Vivo 0.5.")
 
     # -------------------------------------------------------------------------
     # SECCIÓN 5: SALA VIP MRFUTBOL (PESTAÑA INDEPENDIENTE - SOLO PLEQUITAS)
@@ -2181,7 +2369,7 @@ def renderizar_central_mrfutbol():
     with sec_sala_vip:
         st.subheader("👑 Sala VIP MRFUTBOL — Radiografía Profunda [PASO_3_BIG_DATA]")
         st.caption(
-            "Aquí aparecen **únicamente** los partidos que tú seleccionas con la **plequita `☑️ Enviar a Sala VIP`** desde el Scraping en Vivo "
+            "Aquí aparecen **únicamente** los partidos que tú seleccionas con la **plequita `☑️ Enviar a Sala VIP`** desde el Terminal en Vivo 0.5 "
             "o con el selector manual de abajo. Evalúa los bloques de tu `.INI` frente a los **Picos Altos de Referencia** con sello 100% MRFUTBOL."
         )
 
@@ -2412,7 +2600,7 @@ def renderizar_central_mrfutbol():
                         )
             else:
                 st.info(
-                    "La Sala VIP está limpia. Marca la plequita `☑️ Enviar a Sala VIP` en cualquier partido del Scraping en Vivo "
+                    "La Sala VIP está limpia. Marca la plequita `☑️ Enviar a Sala VIP` en cualquier partido del Terminal en Vivo 0.5 "
                     "para pasar su radiografía completa [PASO_3_BIG_DATA] a esta sala."
                 )
 
