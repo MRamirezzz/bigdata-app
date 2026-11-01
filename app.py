@@ -1301,7 +1301,8 @@ def obtener_matriz_clubes_recentes(codigos_liga, objetivos_por_liga):
     JSON para que la app conserve el último corte si la fuente no responde.
     """
     hoy = datetime.utcnow() - timedelta(hours=6)
-    desde = (hoy - timedelta(days=45)).strftime("%Y%m%d")
+    desde_dt = hoy - timedelta(days=63)
+    desde = desde_dt.strftime("%Y%m%d")
     hasta = (hoy + timedelta(days=1)).strftime("%Y%m%d")
     objetivos = {codigo: set(nombres) for codigo, nombres in objetivos_por_liga}
     if not any(objetivos.values()):
@@ -1314,10 +1315,31 @@ def obtener_matriz_clubes_recentes(codigos_liga, objetivos_por_liga):
         try:
             respuesta = requests.get(url, timeout=4)
             if respuesta.status_code == 200:
-                return codigo, respuesta.json().get("events", []) or []
+                eventos_rango = respuesta.json().get("events", []) or []
+                if eventos_rango:
+                    return codigo, eventos_rango
         except Exception:
             pass
-        return codigo, []
+        # Algunos calendarios no responden al rango largo: reintenta en bloques
+        # semanales para recuperar los tres partidos recientes sin pedir cada día.
+        eventos_por_id = {}
+        inicio = desde_dt
+        while inicio <= hoy:
+            fin = min(inicio + timedelta(days=6), hoy)
+            url_semana = (
+                f"https://site.api.espn.com/apis/site/v2/sports/soccer/{codigo}/scoreboard"
+                f"?dates={inicio.strftime('%Y%m%d')}-{fin.strftime('%Y%m%d')}"
+            )
+            try:
+                respuesta = requests.get(url_semana, timeout=3)
+                if respuesta.status_code == 200:
+                    for evento in respuesta.json().get("events", []) or []:
+                        if evento.get("id"):
+                            eventos_por_id[str(evento["id"])] = evento
+            except Exception:
+                pass
+            inicio = fin + timedelta(days=1)
+        return codigo, list(eventos_por_id.values())
 
     with ThreadPoolExecutor(max_workers=20) as executor:
         resultados = list(executor.map(cargar_liga, tareas))
@@ -2061,6 +2083,9 @@ def renderizar_central_mrfutbol():
         )
 
     codigos_todas = [l["code"] for l in LIGAS_BIG_DATA]
+    # La matriz de jornadas recientes usa las 19 ligas domésticas; Champions
+    # sigue disponible en cartelera y pre-apuestas con sus datos de temporada.
+    codigos_historicos = [codigo for codigo in codigos_todas if codigo != "uefa.champions"]
     datos_globales = obtener_partidos_ligas(codigos_todas)
     stats_temporada_api, eficiencias_ligas_api = obtener_estadisticas_temporada_reales(codigos_todas)
     lista_segunda_fuente = obtener_datos_segunda_fuente()
@@ -2071,18 +2096,15 @@ def renderizar_central_mrfutbol():
             continue
         for evento in contenido.get("eventos", []):
             competicion = (evento.get("competitions", [{}]) or [{}])[0]
-            estado = ((competicion.get("status", {}) or {}).get("type", {}) or {}).get("state", "pre")
-            if estado != "pre":
-                continue
             for competidor in competicion.get("competitors", []) or []:
                 nombre = (competidor.get("team", {}) or {}).get("displayName", "")
                 if nombre:
                     objetivos_recientes.setdefault(codigo_liga, set()).add(nombre)
     argumentos_objetivos = tuple(
         (codigo, tuple(sorted(objetivos_recientes.get(codigo, set()))))
-        for codigo in codigos_todas
+        for codigo in codigos_historicos
     )
-    matriz_clubes_recientes = obtener_matriz_clubes_recentes(tuple(codigos_todas), argumentos_objetivos)
+    matriz_clubes_recientes = obtener_matriz_clubes_recentes(tuple(codigos_historicos), argumentos_objetivos)
 
     def obtener_eficiencia_dinamica_liga(meta_liga):
         code = meta_liga["code"]
@@ -2129,7 +2151,11 @@ def renderizar_central_mrfutbol():
             }
 
             if st_state == "in" or es_ht or ev_id in boveda_ml_05:
-                prob_pre, _, xg_pre, _ = calcular_pre_poisson_real(nom_l_full, nom_v_full, stats_temporada_api)
+                evaluacion_reciente = calcular_probabilidades_pre_apuesta(
+                    nom_l_full, nom_v_full, stats_temporada_api, matriz_clubes_recientes
+                )
+                prob_pre = evaluacion_reciente["final"]
+                xg_pre = evaluacion_reciente["xg"]
                 stats_raw = extraer_metricas_partido_reales(loc, vis)
                 _, _, stats, _ = cruzar_validacion_doble_fuente(nom_l_full, nom_v_full, stats_raw, lista_segunda_fuente)
                 toth_l, toth_v, toth_tot = stats["toth_l"], stats["toth_v"], stats["toth_tot"]
@@ -2706,7 +2732,11 @@ def renderizar_central_mrfutbol():
                     goles_v = int(vis.get("score", 0) or 0)
                     goles_tot = goles_l + goles_v
 
-                    prob_pre, _, xg_pre, _ = calcular_pre_poisson_real(nom_l_full, nom_v_full, stats_temporada_api)
+                    evaluacion_reciente = calcular_probabilidades_pre_apuesta(
+                        nom_l_full, nom_v_full, stats_temporada_api, matriz_clubes_recientes
+                    )
+                    prob_pre = evaluacion_reciente["final"]
+                    xg_pre = evaluacion_reciente["xg"]
                     _, _, txt_bit_vivo = calcular_momentum_bitacora_2_fechas(nom_l_full, nom_v_full)
                     stats_raw = extraer_metricas_partido_reales(loc, vis)
                     sello_val, nivel_val, stats, st_f2_match = cruzar_validacion_doble_fuente(
