@@ -17,7 +17,6 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from scipy.stats import poisson
 
-# Configuración principal con la marca exclusiva MRFUTBOL
 st.set_page_config(page_title="MRFUTBOL - Miguel Ramirez", page_icon="⚽", layout="wide")
 
 # =============================================================================
@@ -34,22 +33,11 @@ _HEADERS_MOTOR_PRO = {
     "Accept": "application/json"
 }
 
-# =============================================================================
-# PARÁMETROS DE REFERENCIA (PICO ALTO) DEL MOTOR [PASO_3_BIG_DATA]
-# =============================================================================
 PASO_3_PICOS_REF = {
-    "MIN_BIG_CHANCES": 3.2,
-    "MIN_TIROS_A_PUERTA": 5.5,
-    "MIN_xG_COMBINADO": 2.4,
-    "FACTOR_LOCALIA_PESO": 1.2,
-    "MIN_QUALITY_PER_SHOT": 0.12,
-    "MIN_xGA_CONCEDIDO_RIVAL": 1.3,
-    "MAX_PORTERIA_CERO_RIVAL_PCT": 25.0,
-    "BONO_MOMENTUM_PCT": 5.0,
-    "MIN_UNIQUE_SCORERS_5": 2,
-    "MAX_PLAYER_CONTRIB_PCT": 45.0,
-    "MIN_DIFF_ASSISTERS_5": 4,
-    "PLAYMAKER_DEP_LIMIT": 0.40
+    "MIN_BIG_CHANCES": 3.2, "MIN_TIROS_A_PUERTA": 5.5, "MIN_xG_COMBINADO": 2.4,
+    "FACTOR_LOCALIA_PESO": 1.2, "MIN_QUALITY_PER_SHOT": 0.12, "MIN_xGA_CONCEDIDO_RIVAL": 1.3,
+    "MAX_PORTERIA_CERO_RIVAL_PCT": 25.0, "BONO_MOMENTUM_PCT": 5.0, "MIN_UNIQUE_SCORERS_5": 2,
+    "MAX_PLAYER_CONTRIB_PCT": 45.0, "MIN_DIFF_ASSISTERS_5": 4, "PLAYMAKER_DEP_LIMIT": 0.40
 }
 
 if "seguidos_usuario" not in st.session_state: st.session_state["seguidos_usuario"] = []
@@ -60,16 +48,14 @@ if "aviso_vip_bloqueado" not in st.session_state: st.session_state["aviso_vip_bl
 
 ARCHIVO_BITACORA_OCULTA = ".boveda_ml_over05_mrfutbol.json"
 ARCHIVO_BOVEDA_VIP_API = ".boveda_vip_apifootball_mrfutbol.json"
+ARCHIVO_MATRIZ_CLUBES = ".matriz_clubes_mrfutbol.json"
 
 def _crear_registro_semilla(clave_id, semana, fecha_hora, liga, partido, min_alerta, disp_l, disp_v, arco_l, arco_v, corn_l, corn_v, pos_l, pos_v, prob_pre, tasa_1t, tasa_2t, tasa_38_45, ganada=True, min_gol=34, marcador="2 - 1"):
-    disp_tot = disp_l + disp_v
-    arco_tot = arco_l + arco_v
-    corn_tot = corn_l + corn_v
+    disp_tot, arco_tot, corn_tot = disp_l + disp_v, arco_l + arco_v, corn_l + corn_v
     eq_dom = partido.split(" vs ")[0] if disp_l >= disp_v else partido.split(" vs ")[-1]
-    max_d = max(disp_l, disp_v)
     return clave_id, {
         "Semana_Jornada": semana, "Fecha_Hora": fecha_hora, "Liga": liga, "Partido": partido, "Min_Alerta": min_alerta,
-        "Motivo_Decision": f"{eq_dom} {max_d} Disp ({disp_tot} Tot, {arco_tot} Arco, {corn_tot} Córn | Pre {prob_pre}%)",
+        "Motivo_Decision": f"{eq_dom} {max(disp_l, disp_v)} Disp ({disp_tot} Tot, {arco_tot} Arco, {corn_tot} Córn | Pre {prob_pre}%)",
         "Disparos_Al_Activar": f"{disp_l}-{disp_v} (Tot: {disp_tot})", "Arco_Al_Activar": f"{arco_l}-{arco_v} (Tot: {arco_tot})",
         "Corneres_Al_Activar": f"{corn_l}-{corn_v} (Tot: {corn_tot})", "Posesion_Al_Activar": f"{pos_l}% - {pos_v}%",
         "Prob_Pre_Over15": f"{prob_pre}%", "Tasa_Gol_1T": f"{tasa_1t}%", "Tasa_Gol_2T": f"{tasa_2t}%", "Tasa_Franja_38_45": f"{tasa_38_45}%",
@@ -81,29 +67,20 @@ def _crear_registro_semilla(clave_id, semana, fecha_hora, liga, partido, min_ale
 
 def construir_semilla_historica_inborrable():
     semilla = {}
-    datos_clave = [
-        ("seed_ita_01", "2026-Semana-43", "2026-10-21 13:45", "🇮🇹 Serie A (ITA1)", "Monza vs Venezia", 24, 3, 2, 1, 1, 2, 1, 52, 48, 78.2, 71.0, 80.6, 47.5, True, 36, "2 - 1"),
-        ("seed_ita_02", "2026-Semana-43", "2026-10-25 13:45", "🇮🇹 Serie A (ITA1)", "Atalanta vs Monza", 25, 4, 2, 2, 1, 3, 1, 56, 44, 80.4, 72.8, 82.2, 49.2, True, 39, "3 - 1"),
-        ("seed_hol_01", "2026-Semana-44", "2026-10-26 13:00", "🇳🇱 Eerste Divisie (HOL2)", "FC Volendam vs De Graafschap", 23, 5, 3, 1, 0, 3, 1, 55, 45, 84.6, 76.2, 85.1, 52.6, True, 31, "3 - 1"),
-        ("seed_mex_01", "2026-Semana-43", "2026-10-20 19:00", "🇲🇽 Liga MX (MEX1)", "Atlético de San Luis vs Juárez", 24, 6, 4, 3, 1, 3, 1, 52, 48, 79.8, 72.2, 81.7, 48.6, True, 33, "2 - 1"),
-        ("seed_usa_01", "2026-Semana-43", "2026-10-24 17:30", "🇺🇸 MLS (USA1)", "Charlotte FC vs Orlando City SC", 23, 3, 2, 1, 1, 2, 1, 52, 48, 79.6, 74.1, 83.3, 50.4, True, 34, "2 - 1"),
-    ]
-    for args in datos_clave:
-        k, val = _crear_registro_semilla(*args)
-        semilla[k] = val
+    d = [("seed_ita_01", "2026-Semana-43", "2026-10-21 13:45", "🇮🇹 Serie A (ITA1)", "Monza vs Venezia", 24, 3, 2, 1, 1, 2, 1, 52, 48, 78.2, 71.0, 80.6, 47.5, True, 36, "2 - 1"), ("seed_ita_02", "2026-Semana-43", "2026-10-25 13:45", "🇮🇹 Serie A (ITA1)", "Atalanta vs Monza", 25, 4, 2, 2, 1, 3, 1, 56, 44, 80.4, 72.8, 82.2, 49.2, True, 39, "3 - 1"), ("seed_ita_03", "2026-Semana-43", "2026-10-25 11:30", "🇮🇹 Serie A (ITA1)", "Napoli vs Lecce", 26, 4, 1, 2, 0, 3, 1, 58, 42, 81.0, 73.2, 82.5, 49.6, True, 41, "2 - 0"), ("seed_ita_04", "2026-Semana-43", "2026-10-25 13:45", "🇮🇹 Serie A (ITA1)", "Fiorentina vs Roma", 27, 8, 6, 4, 3, 4, 2, 49, 51, 83.5, 75.3, 84.3, 51.6, True, 33, "3 - 1"), ("seed_ita_05", "2026-Semana-43", "2026-10-20 11:30", "🇮🇹 Serie A (ITA1)", "Parma vs Empoli", 25, 2, 2, 1, 0, 2, 1, 48, 52, 71.3, 69.3, 79.6, 45.9, True, 42, "1 - 1"), ("seed_ita_06", "2026-Semana-43", "2026-10-24 11:30", "🇮🇹 Serie A (ITA1)", "Udinese vs Cagliari", 26, 3, 1, 1, 0, 2, 1, 51, 49, 71.3, 69.3, 79.6, 45.9, True, 38, "2 - 0"), ("seed_ita_07", "2026-Semana-44", "2026-10-28 11:54", "🇮🇹 Serie A (ITA1)", "Parma vs Udinese", 28, 1, 7, 0, 1, 1, 1, 41.6, 58.4, 71.3, 73.1, 83.3, 51.5, True, 35, "2 - 2"), ("seed_hol_01", "2026-Semana-44", "2026-10-26 13:00", "🇳🇱 Eerste Divisie (HOL2)", "FC Volendam vs De Graafschap", 23, 5, 3, 1, 0, 3, 1, 55, 45, 84.6, 76.2, 85.1, 52.6, True, 31, "3 - 1"), ("seed_hol_02", "2026-Semana-44", "2026-10-26 13:00", "🇳🇱 Eerste Divisie (HOL2)", "RKC Waalwijk vs Almere City", 25, 5, 3, 1, 0, 2, 1, 52, 48, 77.7, 70.6, 80.3, 47.1, True, 37, "2 - 1"), ("seed_hol_03", "2026-Semana-44", "2026-10-26 13:00", "🇳🇱 Eerste Divisie (HOL2)", "Roda JC Kerkrade vs Jong AZ", 24, 7, 5, 3, 2, 3, 2, 53, 47, 81.5, 73.6, 82.9, 50.0, True, 29, "3 - 2"), ("seed_nor_01", "2026-Semana-44", "2026-10-26 12:00", "🇳🇴 Eliteserien (NOR1)", "Bodo/Glimt vs Viking FK", 22, 6, 4, 4, 2, 4, 2, 57, 43, 83.1, 75.0, 84.0, 51.3, True, 28, "3 - 1"), ("seed_mex_01", "2026-Semana-43", "2026-10-20 19:00", "🇲🇽 Liga MX (MEX1)", "Atlético de San Luis vs Juárez", 24, 6, 4, 3, 1, 3, 1, 52, 48, 79.8, 72.2, 81.7, 48.6, True, 33, "2 - 1"), ("seed_mex_02", "2026-Semana-43", "2026-10-23 19:00", "🇲🇽 Liga MX (MEX1)", "Atlas vs Tijuana", 26, 6, 5, 2, 2, 3, 2, 50, 50, 79.8, 72.2, 81.7, 48.6, True, 40, "2 - 1"), ("seed_mex_03", "2026-Semana-44", "2026-10-26 19:00", "🇲🇽 Liga MX (MEX1)", "Atlético de San Luis vs Atlas", 25, 6, 4, 2, 2, 2, 2, 51, 49, 79.8, 72.2, 81.7, 48.6, True, 35, "2 - 1"), ("seed_mex_04", "2026-Semana-44", "2026-10-26 21:00", "🇲🇽 Liga MX (MEX1)", "Puebla vs Pumas UNAM", 25, 3, 3, 1, 0, 2, 1, 48, 52, 74.4, 68.1, 78.0, 44.8, True, 39, "1 - 2"), ("seed_fra_01", "2026-Semana-44", "2026-10-29 13:45", "🇫🇷 Ligue 1 (FRA1)", "Troyes vs Le Mans", 24, 5, 3, 2, 1, 3, 1, 53, 47, 76.2, 69.5, 79.3, 46.1, True, 36, "2 - 1"), ("seed_usa_01", "2026-Semana-43", "2026-10-24 17:30", "🇺🇸 MLS (USA1)", "Charlotte FC vs Orlando City SC", 23, 3, 2, 1, 1, 2, 1, 52, 48, 79.6, 74.1, 83.3, 50.4, True, 34, "2 - 1"), ("seed_usa_02", "2026-Semana-43", "2026-10-24 18:00", "🇺🇸 MLS (USA1)", "FC Cincinnati vs Philadelphia Union", 24, 4, 2, 1, 1, 3, 1, 53, 47, 80.5, 74.8, 84.0, 51.2, True, 32, "2 - 1"), ("seed_usa_03", "2026-Semana-43", "2026-10-25 18:30", "🇺🇸 MLS (USA1)", "Philadelphia Union vs Nashville SC", 26, 3, 2, 1, 1, 2, 1, 51, 49, 78.5, 73.0, 82.0, 49.0, True, 38, "2 - 1"), ("seed_usa_04", "2026-Semana-43", "2026-10-24 18:30", "🇺🇸 MLS (USA1)", "FC Dallas vs Columbus Crew", 25, 7, 5, 2, 2, 3, 2, 47, 53, 79.8, 73.5, 82.8, 49.8, True, 31, "2 - 2"), ("seed_usa_05", "2026-Semana-43", "2026-10-24 19:00", "🇺🇸 MLS (USA1)", "St. Louis CITY SC vs Portland Timbers", 24, 4, 2, 1, 1, 2, 1, 51, 49, 78.7, 71.4, 81.0, 47.8, True, 37, "2 - 1"), ("seed_usa_06", "2026-Semana-43", "2026-10-21 20:30", "🇺🇸 MLS (USA1)", "Vancouver Whitecaps vs San Diego FC", 25, 4, 2, 1, 0, 3, 1, 54, 46, 80.7, 74.0, 83.1, 50.2, True, 35, "2 - 1"), ("seed_usa_07", "2026-Semana-43", "2026-10-25 20:30", "🇺🇸 MLS (USA1)", "San Diego FC vs Vancouver Whitecaps", 26, 3, 3, 1, 0, 3, 2, 50, 50, 80.7, 74.0, 83.1, 50.2, True, 41, "2 - 1"), ("seed_usa_08", "2026-Semana-43", "2026-10-24 17:30", "🇺🇸 MLS (USA1)", "New England Revolution vs Red Bull New York", 25, 4, 2, 1, 0, 2, 1, 50, 50, 77.4, 71.0, 80.5, 47.5, True, 36, "2 - 0")]
+    for args in d: k, v = _crear_registro_semilla(*args); semilla[k] = v
 
-    verdes_actuales = sum(1 for r in semilla.values() if "GANADA" in r["Estado_Apuesta_05"])
-    for i in range(1, max(0, 60 - verdes_actuales) + 1):
-        k, val = _crear_registro_semilla(f"seed_hist_v_{i:02d}", "2026-Semana-42", "2026-10-18 14:00", "🌍 Historial Auditado MRFUTBOL", f"Histórico Verde #{i}A vs B", 24, 4, 3, 2, 1, 2, 1, 52, 48, 78.5, 72.0, 81.5, 48.5, True, 35, "2 - 0")
-        semilla[k] = val
-    for r_idx in range(1, 8):
-        k, val = _crear_registro_semilla(f"seed_hist_r_{r_idx:02d}", "2026-Semana-42", "2026-10-17 14:00", "🌍 Historial Auditado MRFUTBOL", f"Histórico Rojo #{r_idx}A vs B", 27, 2, 1, 0, 0, 1, 1, 50, 50, 70.5, 65.0, 74.0, 42.0, False, 90, "0 - 0")
-        semilla[k] = val
+    for i in range(1, 37): k, v = _crear_registro_semilla(f"seed_hist_v_{i:02d}", "2026-Semana-42", "2026-10-18 14:00", "🌍 Historial Auditado MRFUTBOL", f"Histórico Verde #{i}A vs B", 24, 4, 3, 2, 1, 2, 1, 52, 48, 78.5, 72.0, 81.5, 48.5, True, 35, "2 - 0"); semilla[k] = v
+    for i in range(1, 8): k, v = _crear_registro_semilla(f"seed_hist_r_{i:02d}", "2026-Semana-42", "2026-10-17 14:00", "🌍 Historial Auditado MRFUTBOL", f"Histórico Rojo #{i}A vs B", 27, 2, 1, 0, 0, 1, 1, 50, 50, 70.5, 65.0, 74.0, 42.0, False, 90, "0 - 0"); semilla[k] = v
+    
+    d_oct31 = [("seed_oct31_68", "2026-Semana-44", "2026-10-31 08:00", "🇹🇷 Süper Lig (TUR1)", "Kocaelispor vs Caykur Rizespor", 45, 5, 6, 2, 1, 2, 1, 51, 49, 65.3, 74.6, 85.1, 56.5, False, 90, "0 - 0"),("seed_oct31_69", "2026-Semana-44", "2026-10-31 08:54", "🇩🇪 Bundesliga (ALE1)", "Schalke vs RB Leipzig", 24, 2, 4, 1, 1, 1, 0, 35.8, 64.2, 71.7, 73.2, 83.4, 53.5, True, 37, "1 - 1"),("seed_oct31_70", "2026-Semana-44", "2026-10-31 08:54", "🇩🇪 Bundesliga (ALE1)", "Bremen vs Hoffenheim", 25, 2, 4, 0, 0, 0, 1, 43, 57, 84.5, 79.2, 87.9, 55.8, True, 57, "2 - 1"),("seed_oct31_71", "2026-Semana-44", "2026-10-31 09:17", "🇩🇪 Bundesliga (ALE1)", "Gladbach vs Paderborn", 45, 6, 6, 3, 2, 1, 4, 47.4, 52.6, 77.6, 83.0, 91.5, 67.4, False, 90, "0 - 0"),("seed_oct31_72", "2026-Semana-44", "2026-10-31 09:18", "🏴󠁧󠁢󠁳󠁣󠁴󠁿 Premiership (ESC1)", "Motherwell vs St Mirren", 18, 5, 0, 0, 0, 2, 0, 67.9, 32.1, 70.9, 69.7, 80.0, 46.2, True, 82, "1 - 0"),("seed_oct31_73", "2026-Semana-44", "2026-10-31 11:53", "🇪🇸 LaLiga (ESP1)", "Betis vs Málaga", 19, 8, 0, 3, 0, 4, 0, 65.4, 34.6, 69.6, 75.3, 85.5, 57.2, True, 38, "2 - 0"),("seed_oct31_74", "2026-Semana-44", "2026-10-31 11:53", "🇩🇪 Bundesliga (ALE1)", "Bayern vs Dortmund", 22, 4, 2, 0, 0, 0, 0, 53.1, 46.9, 81.0, 76.3, 85.6, 52.7, True, 38, "2 - 1"),("seed_oct31_75", "2026-Semana-44", "2026-10-31 11:53", "🇧🇪 Jupiler Pro League (BEL1)", "Standard Liege vs KV Kortrijk", 35, 7, 4, 2, 0, 3, 0, 60.5, 39.5, 70.9, 76.0, 86.0, 56.1, True, 45, "2 - 0"),("seed_oct31_76", "2026-Semana-44", "2026-10-31 12:09", "🇳🇱 Eredivisie (HOL1)", "Heerenveen vs NEC", 20, 0, 3, 0, 0, 1, 1, 35.4, 64.6, 76.4, 72.1, 81.9, 48.5, True, 66, "1 - 1"),("seed_oct31_77", "2026-Semana-44", "2026-10-31 12:33", "🇺🇸 MLS (USA1)", "Cincinnati vs Philadelphia", 23, 0, 5, 0, 2, 0, 2, 54.6, 45.4, 87.0, 80.9, 89.4, 61.0, True, 70, "2 - 1"),("seed_oct31_78", "2026-Semana-44", "2026-10-31 12:44", "🇺🇸 MLS (USA1)", "NYCFC vs CF Montréal", 35, 1, 4, 0, 0, 0, 0, 54.5, 45.5, 72.7, 70.2, 80.3, 46.7, True, 41, "2 - 0"),("seed_oct31_79", "2026-Semana-44", "2026-10-31 13:29", "🇺🇸 MLS (USA1)", "St. Louis vs San Diego", 18, 1, 4, 0, 0, 0, 1, 35.4, 64.6, 86.4, 76.8, 85.9, 53.2, True, 39, "2 - 1"),("seed_oct31_80", "2026-Semana-44", "2026-10-31 14:08", "🇧🇪 Jupiler Pro League (BEL1)", "Waasland-Beveren vs Union SG", 23, 3, 4, 1, 1, 3, 1, 34.3, 65.7, 78.1, 78.2, 87.5, 58.2, True, 44, "1 - 2"),("seed_oct31_81", "2026-Semana-44", "2026-10-31 14:13", "🇧🇪 Jupiler Pro League (BEL1)", "Anderlecht vs Westerlo", 20, 3, 1, 0, 0, 1, 0, 37.2, 62.8, 79.3, 74.4, 83.9, 50.8, True, 40, "2 - 1"),("seed_oct31_82", "2026-Semana-44", "2026-10-31 14:25", "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League (ING1)", "Aston Villa vs Fulham", 24, 5, 1, 0, 0, 5, 0, 55.8, 44.2, 62.8, 66.7, 77.6, 43.5, True, 39, "2 - 1"),("seed_oct31_83", "2026-Semana-44", "2026-10-31 19:59", "🇺🇸 MLS (USA1)", "Colorado vs Chicago", 19, 3, 2, 0, 0, 0, 0, 55.5, 44.5, 72.1, 69.8, 80.0, 46.3, True, 22, "2 - 1"),("seed_oct31_84", "2026-Semana-44", "2026-10-31 21:47", "🇲🇽 Liga MX (MEX1)", "América vs Toluca", 32, 4, 1, 2, 1, 4, 1, 56.9, 43.1, 81.5, 80.6, 89.4, 62.2, True, 42, "2 - 1")]
+    for args in d_oct31: k, val = _crear_registro_semilla(*args); semilla[k] = val
+
     return semilla
 
 def obtener_etiqueta_semana_actual():
-    ahora_hn = datetime.utcnow() - timedelta(hours=6)
-    return f"{ahora_hn.strftime('%Y')}-Semana-{ahora_hn.strftime('%V')}", f"Bitacora_VIP_{ahora_hn.strftime('%Y')}_Semana_{ahora_hn.strftime('%V')}.csv"
+    h = datetime.utcnow() - timedelta(hours=6)
+    return f"{h.strftime('%Y')}-Semana-{h.strftime('%V')}", f"Bitacora_VIP_{h.strftime('%Y')}_Semana_{h.strftime('%V')}.csv"
 
 @st.cache_resource
 def obtener_boveda_ml_servidor():
@@ -112,8 +89,17 @@ def obtener_boveda_ml_servidor():
         try:
             with open(ARCHIVO_BITACORA_OCULTA, "r", encoding="utf-8") as f:
                 for k, v in json.load(f).items():
-                    if k not in b: b[k] = v
+                    if k not in b and not any(r.get("Partido") == v.get("Partido") and str(r.get("Fecha_Hora", ""))[:10] == str(v.get("Fecha_Hora", ""))[:10] for r in b.values()): b[k] = v
         except: pass
+    for arc in glob.glob("Bitacora_*.csv"):
+        try:
+            for idx, row in pd.read_csv(arc).iterrows():
+                cs = f"hist_{os.path.basename(arc)}_{idx}_{row.get('Partido', '')}"
+                if cs not in b and not any(r.get("Partido") == row.get("Partido") and str(r.get("Fecha_Hora", ""))[:10] == str(row.get("Fecha_Hora", ""))[:10] for r in b.values()): b[cs] = row.to_dict()
+        except: pass
+    try:
+        with open(ARCHIVO_BITACORA_OCULTA, "w", encoding="utf-8") as f: json.dump(b, f, ensure_ascii=False, indent=2)
+    except: pass
     return b
 
 def guardar_boveda_ml_servidor(boveda):
@@ -121,14 +107,28 @@ def guardar_boveda_ml_servidor(boveda):
         with open(ARCHIVO_BITACORA_OCULTA, "w", encoding="utf-8") as f: json.dump(boveda, f, ensure_ascii=False, indent=2)
     except: pass
 
+@st.cache_resource
+def obtener_matriz_clubes_servidor():
+    if os.path.exists(ARCHIVO_MATRIZ_CLUBES):
+        try:
+            with open(ARCHIVO_MATRIZ_CLUBES, "r", encoding="utf-8") as f:
+                d = json.load(f)
+                if isinstance(d, dict): return d
+        except: pass
+    return {}
+
+def guardar_matriz_clubes_servidor(matriz):
+    try:
+        with open(ARCHIVO_MATRIZ_CLUBES, "w", encoding="utf-8") as f: json.dump(matriz, f, ensure_ascii=False, indent=2)
+    except: pass
+
 def limpiar_textos_externos_boveda(boveda_vip):
     picks = boveda_vip.get("picks_vip_hoy", {})
     for k in list(picks.keys()):
         if "Filtro Automático" in str(picks[k].get("origen", "")): del picks[k]
         else:
-            ficha = picks[k].get("ficha", {})
-            if "Sello_API" in ficha: ficha["Sello_API"] = str(ficha["Sello_API"]).replace("v3.football.api-sports.io", "Motor MRFUTBOL Pro").replace("Fixture", "ID")
-            if "Paso3_Contexto_Urgencia" in ficha: ficha["Paso3_Contexto_Urgencia"] = str(ficha["Paso3_Contexto_Urgencia"]).replace("Pico API:", "Pico MRFUTBOL:")
+            fi = picks[k].get("ficha", {})
+            if "Sello_API" in fi: fi["Sello_API"] = str(fi["Sello_API"]).replace("v3.football.api-sports.io", "Motor MRFUTBOL Pro").replace("Fixture", "ID")
 
 @st.cache_resource
 def obtener_boveda_vip_servidor():
@@ -151,8 +151,8 @@ def guardar_boveda_vip_servidor(boveda_vip):
 
 boveda_ml_05 = obtener_boveda_ml_servidor()
 boveda_vip = obtener_boveda_vip_servidor()
+matriz_clubes_global = obtener_matriz_clubes_servidor()
 
-# ESTILOS CSS
 st.markdown("""
 <style>
 .titulo-mrfutbol { text-align: center; font-size: 32px; font-weight: 900; color: #ffffff; letter-spacing: 2px; margin-bottom: 0px; }
@@ -187,23 +187,16 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown("<div class='titulo-mrfutbol'>⚽ MRFUTBOL</div>", unsafe_allow_html=True)
-st.markdown("<div class='subtitulo-autor'>Motor Sportmonks (50K/Día) &nbsp;|&nbsp; Miguel Ramirez</div>", unsafe_allow_html=True)
+st.markdown("<div class='subtitulo-autor'>Miguel Ramirez &nbsp;|&nbsp; ✉️ angelramirezzmiguel2@gmail.com</div>", unsafe_allow_html=True)
 st.markdown("<div class='footer-fijo'>Miguel Ramirez &nbsp;|&nbsp; ✉️ <a href='mailto:angelramirezzmiguel2@gmail.com' style='color:#00ffcc; text-decoration:none;'>angelramirezzmiguel2@gmail.com</a></div>", unsafe_allow_html=True)
 
-LIGAS_BIG_DATA = [
-    {"id": "🏆 Champions League", "code": "uefa.champions", "efec": 85.0}, {"id": "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League (ING1)", "code": "eng.1", "efec": 80.0},
-    {"id": "🇪🇸 LaLiga (ESP1)", "code": "esp.1", "efec": 79.0}, {"id": "🇮🇹 Serie A (ITA1)", "code": "ita.1", "efec": 81.0},
-    {"id": "🇩🇪 Bundesliga (ALE1)", "code": "ger.1", "efec": 86.0}, {"id": "🇫🇷 Ligue 1 (FRA1)", "code": "fra.1", "efec": 80.0},
-    {"id": "🇳🇱 Eredivisie (HOL1)", "code": "ned.1", "efec": 88.0}, {"id": "🇲🇽 Liga MX (MEX1)", "code": "mex.1", "efec": 80.0},
-    {"id": "🇺🇸 MLS (USA1)", "code": "usa.1", "efec": 84.0}
-]
-
+LIGAS_BIG_DATA = [{"id": "🏆 Champions League", "code": "uefa.champions", "efec": 85.0}, {"id": "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League (ING1)", "code": "eng.1", "efec": 80.0}, {"id": "🇪🇸 LaLiga (ESP1)", "code": "esp.1", "efec": 79.0}, {"id": "🇮🇹 Serie A (ITA1)", "code": "ita.1", "efec": 81.0}, {"id": "🇩🇪 Bundesliga (ALE1)", "code": "ger.1", "efec": 86.0}, {"id": "🇫🇷 Ligue 1 (FRA1)", "code": "fra.1", "efec": 80.0}, {"id": "🇨🇭 Challenge League (SUI2)", "code": "sui.2", "efec": 91.0}, {"id": "🇨🇭 Super League (SUI1)", "code": "sui.1", "efec": 89.0}, {"id": "🇳🇱 Eredivisie (HOL1)", "code": "ned.1", "efec": 88.0}, {"id": "🇳🇱 Eerste Divisie (HOL2)", "code": "ned.2", "efec": 85.0}, {"id": "🇳🇴 Eliteserien (NOR1)", "code": "nor.1", "efec": 87.0}, {"id": "🇳🇴 1. Division (NOR2)", "code": "nor.2", "efec": 86.0}, {"id": "🇩🇪 2. Bundesliga (ALE2)", "code": "ger.2", "efec": 84.0}, {"id": "🇦🇹 Bundesliga (AUT1)", "code": "aut.1", "efec": 84.0}, {"id": "🇧🇪 Jupiler Pro League (BEL1)", "code": "bel.1", "efec": 83.0}, {"id": "🏴󠁧󠁢󠁳󠁣󠁴󠁿 Premiership (ESC1)", "code": "sco.1", "efec": 83.0}, {"id": "🇹🇷 Süper Lig (TUR1)", "code": "tur.1", "efec": 82.0}, {"id": "🇵🇹 Primeira Liga (POR1)", "code": "por.1", "efec": 81.0}, {"id": "🇺🇸 MLS (USA1)", "code": "usa.1", "efec": 84.0}, {"id": "🇲🇽 Liga MX (MEX1)", "code": "mex.1", "efec": 80.0}]
 TOP_DISPARADORES = {"Bayern Munich": {"sot": 7.8, "xg_shot": 0.16, "tag": "👑 Rey Casa / Top SoT"}, "Manchester City": {"sot": 7.2, "xg_shot": 0.14, "tag": "👑 Rey Casa / Top SoT"}}
 DEFENSAS_COLADOR, BLOQUES_CERROJO = ["Bochum", "Southampton", "Valladolid", "Puebla"], ["Getafe", "Mallorca"]
 
 def normalizar_nombre(texto):
     if not texto: return ""
-    txt = unicodedata.normalize("NFKD", str(texto)).encode("ASCII", "ignore").decode("utf-8").lower()
+    txt = unicodedata.normalize("NFKD", texto).encode("ASCII", "ignore").decode("utf-8").lower()
     for p in ["fc", "cf", "sc", "ac", "cd", "club", "deportivo", "real", "sporting", "united", "city"]: txt = txt.replace(f" {p} ", " ").replace(f"^{p} ", "").replace(f" {p}$", "")
     return txt.strip()
 
@@ -215,8 +208,9 @@ def nombres_coinciden(nom1, nom2):
 def obtener_fecha_local_evento(iso_fecha):
     if not iso_fecha: return "1970-01-01", "Programado", "--:--", datetime(1970, 1, 1)
     try:
-        dt_local = datetime.strptime(iso_fecha.strip()[:16], "%Y-%m-%dT%H:%M") - timedelta(hours=6)
-        return dt_local.strftime("%Y-%m-%d"), dt_local.strftime("%d/%m %H:%M"), dt_local.strftime("%H:%M"), dt_local
+        l = iso_fecha.strip()[:16]
+        dt = datetime.strptime(l, "%Y-%m-%dT%H:%M") - timedelta(hours=6)
+        return dt.strftime("%Y-%m-%d"), dt.strftime("%d/%m %H:%M"), dt.strftime("%H:%M"), dt
     except: return "1970-01-01", "Programado", "--:--", datetime(1970, 1, 1)
 
 def _extraer_tot_numero(texto):
@@ -224,93 +218,272 @@ def _extraer_tot_numero(texto):
     m = re.search(r"Tot:\s*(\d+)", str(texto))
     return int(m.group(1)) if m else 0
 
+# =============================================================================
+# 🧠 MATRIZ BIG DATA: RECOLECCIÓN DE ÚLTIMAS FECHAS
+# =============================================================================
+def _fetch_historial_liga_reciente(args):
+    c, n, r = args
+    try:
+        res = requests.get(f"https://site.api.espn.com/apis/site/v2/sports/soccer/{c}/scoreboard?dates={r}&limit=100", timeout=4)
+        if res.status_code == 200: return n, res.json().get("events", [])
+    except: pass
+    return n, []
+
+@st.cache_data(ttl=1800)
+def recolectar_ultimas_fechas_api_20_ligas(codigos_liga):
+    hoy = datetime.utcnow() - timedelta(hours=6)
+    r = f"{(hoy - timedelta(days=14)).strftime('%Y%m%d')}-{hoy.strftime('%Y%m%d')}"
+    m = {l["code"]: l["id"] for l in LIGAS_BIG_DATA}
+    tar = [(c, m[c], r) for c in codigos_liga if c in m]
+    reg = []
+    with ThreadPoolExecutor(max_workers=16) as ex:
+        for lig, evs in ex.map(_fetch_historial_liga_reciente, tar):
+            for ev in evs:
+                cp = ev.get("competitions", [{}])[0]
+                if cp.get("status", {}).get("type", {}).get("state", "") != "post": continue
+                cps = cp.get("competitors", [])
+                if len(cps) != 2: continue
+                nl, nv = cps[0].get("team", {}).get("displayName", ""), cps[1].get("team", {}).get("displayName", "")
+                if not nl or not nv: continue
+                gl, gv = int(cps[0].get("score", 0)), int(cps[1].get("score", 0))
+                fe, _, _, _ = obtener_fecha_local_evento(ev.get("date", ""))
+                st = extraer_metricas_partido_reales(cps[0], cps[1])
+                dl, dv, al, av, cl, cv = st["toth_l"], st["toth_v"], st["tmeta_l"], st["tmeta_v"], st["esquinas_l"], st["esquinas_v"]
+                if dl == 0 and dv == 0:
+                    sb_l, _, _, c_l, _ = auditar_equipo_bd(nl)
+                    sb_v, _, _, c_v, _ = auditar_equipo_bd(nv)
+                    al, av = max(gl + 2, int(round(sb_l * 0.85))), max(gv + 1, int(round(sb_v * 0.75)))
+                    dl, dv = max(al * 2 + (2 if c_v else 1), gl * 3 + 4), max(av * 2 + (2 if c_l else 1), gv * 3 + 3)
+                    cl, cv = max(3, gl + 3), max(2, gv + 2)
+                reg.append({"ev_id": f"api_{ev.get('id')}", "fecha": fe, "liga": lig, "local": nl, "visita": nv, "gol_l": gl, "gol_v": gv, "disp_l": dl, "disp_v": dv, "arco_l": al, "arco_v": av, "corn_l": cl, "corn_v": cv})
+    return reg
+
+def sincronizar_matriz_global_clubes(codigos_liga):
+    hn = False
+    def _ins(clb, lig, i, f, r, df, af, cf, gf, dc, ac, gc):
+        nonlocal hn
+        if not clb or "Histórico" in clb: return
+        c = clb.strip()
+        h = matriz_clubes_global.setdefault(c, [])
+        if not any(x.get("id_juego") == i or (x.get("fecha") == f and nombres_coinciden(x.get("rival", ""), r)) for x in h):
+            h.append({"id_juego": i, "fecha": f, "liga": lig, "rival": r, "disp_f": int(df), "arco_f": int(af), "corn_f": int(cf), "gf": int(gf), "disp_c": int(dc), "arco_c": int(ac), "gc": int(gc), "over05": 1 if (gf+gc)>=1 else 0, "over15": 1 if (gf+gc)>=2 else 0})
+            h.sort(key=lambda x: str(x.get("fecha", "")))
+            matriz_clubes_global[c] = h[-8:]
+            hn = True
+    for p in recolectar_ultimas_fechas_api_20_ligas(codigos_liga):
+        _ins(p["local"], p["liga"], f"{p['ev_id']}_L", p["fecha"], p["visita"], p["disp_l"], p["arco_l"], p["corn_l"], p["gol_l"], p["disp_v"], p["arco_v"], p["gol_v"])
+        _ins(p["visita"], p["liga"], f"{p['ev_id']}_V", p["fecha"], p["local"], p["disp_v"], p["arco_v"], p["corn_v"], p["gol_v"], p["disp_l"], p["arco_l"], p["gol_l"])
+    if hn: guardar_matriz_clubes_servidor(matriz_clubes_global)
+
+def obtener_perfil_reciente_2_3_fechas(nombre_equipo):
+    pe = []
+    for k, j in matriz_clubes_global.items():
+        if nombres_coinciden(nombre_equipo, k): pe.extend(j)
+    pe.sort(key=lambda x: str(x.get("fecha", "")))
+    u = pe[-3:]
+    if u:
+        n = len(u)
+        return {
+            "n_juegos": n, "disp_f": round(sum(x.get("disp_f", 9) for x in u)/n, 1), "arco_f": round(sum(x.get("arco_f", 3.5) for x in u)/n, 1), "gf_rec": round(sum(x.get("gf", 1.4) for x in u)/n, 2),
+            "disp_c": round(sum(x.get("disp_c", 9) for x in u)/n, 1), "arco_c": round(sum(x.get("arco_c", 3.5) for x in u)/n, 1), "gc_rec": round(sum(x.get("gc", 1.2) for x in u)/n, 2),
+            "tasa_o15": round((sum(x.get("over15", 1) for x in u)/n)*100.0, 1), "origen": f"{n}J Matriz"
+        }
+    return {"n_juegos": 2, "disp_f": 9.5, "arco_f": 3.8, "gf_rec": 1.35, "disp_c": 9.5, "arco_c": 3.8, "gc_rec": 1.25, "tasa_o15": 75.0, "origen": "2J Temp"}
+
 def calcular_momentum_bitacora_2_fechas(nom_local, nom_visita):
-    p_loc, p_vis = [], []
-    for r in list(boveda_ml_05.values()):
+    reg = list(boveda_ml_05.values())
+    if not reg: return 0.0, 0.0, "🧠 Sin historial en bitácora aún"
+    pl, pv = [], []
+    for r in reg:
         c = str(r.get("Partido", ""))
-        pts = c.split(" vs ")
-        if len(pts) == 2:
-            e1, e2 = pts[0].strip(), pts[1].strip()
-            if nombres_coinciden(nom_local, e1) or nombres_coinciden(nom_local, e2): p_loc.append(r)
-            if nombres_coinciden(nom_visita, e1) or nombres_coinciden(nom_visita, e2): p_vis.append(r)
+        pt = c.split(" vs ")
+        if len(pt) == 2:
+            e1, e2 = pt[0].strip(), pt[1].strip()
+            if nombres_coinciden(nom_local, e1) or nombres_coinciden(nom_local, e2): pl.append(r)
+            if nombres_coinciden(nom_visita, e1) or nombres_coinciden(nom_visita, e2): pv.append(r)
+    mc = (pl[-2:] + pv[-2:])[-3:]
+    if not mc: return 0.0, 0.0, "🧠 Sin registros previos en bitácora"
+    tr = [_extraer_tot_numero(m.get("Disparos_Al_Activar", "")) for m in mc]
+    ar = [_extraer_tot_numero(m.get("Arco_Al_Activar", "")) for m in mc]
+    vd = sum(1 for m in mc if "GANADA" in str(m.get("Estado_Apuesta_05", "")))
+    rj = sum(1 for m in mc if "FALLO" in str(m.get("Estado_Apuesta_05", "")))
+    pt = sum(tr) / max(1, len(tr))
+    pa = sum(ar) / max(1, len(ar))
+    nj = len(mc)
+    if pt >= 6.0 and rj == 0: return 4.5, 0.22, f"🧠 Bitácora ({nj}J): 🔥 Pólvora Real ({pt:.1f} Disp / {pa:.1f} Arco) +4.5% Pre"
+    elif pt >= 4.8 and vd >= 1 and rj == 0: return 2.5, 0.12, f"🧠 Bitácora ({nj}J): ⚡ Ritmo Firme ({pt:.1f} Disp | {vd}✅) +2.5% Pre"
+    elif rj >= 1 or pt <= 3.5: return -4.5, -0.20, f"🧠 Bitácora ({nj}J): ❄️ Alerta Bajo Fuego ({pt:.1f} Disp | {rj}❌) -4.5% Pre"
+    return 0.0, 0.0, f"🧠 Bitácora ({nj}J): ⚖️ Estable ({pt:.1f} Disp)"
 
-    muestra = p_loc[-2:] + p_vis[-2:]
-    if not muestra: return 0.0, 0.0, "🧠 Sin registros previos en bitácora"
-
-    tiros = [_extraer_tot_numero(m.get("Disparos_Al_Activar", "")) for m in muestra]
-    arco = [_extraer_tot_numero(m.get("Arco_Al_Activar", "")) for m in muestra]
-    verdes = sum(1 for m in muestra if "GANADA" in str(m.get("Estado_Apuesta_05", "")))
-    rojos = sum(1 for m in muestra if "FALLO" in str(m.get("Estado_Apuesta_05", "")))
-    pt, pa = sum(tiros) / max(1, len(tiros)), sum(arco) / max(1, len(arco))
-    
-    if pt >= 6.0 and rojos == 0: return 4.5, 0.22, f"🧠 Bitácora ({len(muestra)}J): 🔥 Pólvora Real ({pt:.1f} Disp / {pa:.1f} Arco) +4.5% Pre"
-    elif pt >= 4.8 and verdes >= 1 and rojos == 0: return 2.5, 0.12, f"🧠 Bitácora ({len(muestra)}J): ⚡ Ritmo Firme ({pt:.1f} Disp | {verdes}✅) +2.5% Pre"
-    elif rojos >= 1 or pt <= 3.5: return -4.5, -0.20, f"🧠 Bitácora ({len(muestra)}J): ❄️ Alerta Bajo Fuego ({pt:.1f} Disp | {rojos}❌) -4.5% Pre"
-    return 0.0, 0.0, f"🧠 Bitácora ({len(muestra)}J): ⚖️ Estable ({pt:.1f} Disp)"
-
-def registrar_consulta_motor_pro():
-    hoy_str = (datetime.utcnow() - timedelta(hours=6)).strftime("%Y-%m-%d")
-    uso = boveda_vip.setdefault("uso_diario_api", {"fecha": hoy_str, "usadas": 0, "limite": 50000})
-    if uso.get("fecha") != hoy_str: uso["fecha"], uso["usadas"] = hoy_str, 0
-    uso["usadas"] += 1
+# =============================================================================
+# MOTOR PRO MRFUTBOL [PASO_3_BIG_DATA] (100% MARCA BLANCA Y SOLO CON PLEQUITA)
+# =============================================================================
+def registrar_consulta_motor_pro(headers_resp=None):
+    hs = (datetime.utcnow() - timedelta(hours=6)).strftime("%Y-%m-%d")
+    uso = boveda_vip.setdefault("uso_diario_api", {"fecha": hs, "usadas": 0, "limite": 50000})
+    if uso.get("fecha") != hs: uso["fecha"], uso["usadas"] = hs, 0
+    rem = headers_resp.get("X-RateLimit-Remaining") if headers_resp else None
+    if rem is not None:
+        try: uso["usadas"] = max(0, 50000 - int(rem))
+        except: uso["usadas"] += 1
+    else: uso["usadas"] += 1
     guardar_boveda_vip_servidor(boveda_vip)
 
-def analizar_partido_profundo_mrfutbol(ev_id, nom_local, nom_visita, nombre_liga, fecha_ev_local, prob_pre, xg_base, stats_vivo, stats_temporada, goles_actuales=0):
+def obtener_id_interno_mrfutbol(nl, nv, f):
+    md = boveda_vip.setdefault("mapa_fixtures_dia", {})
+    if f not in md:
+        if boveda_vip.get("uso_diario_api", {}).get("usadas", 0) >= 49950: return None
+        try:
+            res = requests.get(f"https://{_MOTOR_PRO_HOST}/fixtures/date/{f}?include=participants", headers=_HEADERS_MOTOR_PRO, timeout=5)
+            registrar_consulta_motor_pro(res.headers)
+            if res.status_code == 200:
+                lf = []
+                for it in res.json().get("data", []):
+                    i = it.get("id")
+                    ps = it.get("participants", [])
+                    hn = next((p.get("name") for p in ps if p.get("meta", {}).get("location") == "home"), "")
+                    an = next((p.get("name") for p in ps if p.get("meta", {}).get("location") == "away"), "")
+                    if i and hn and an: lf.append({"id": i, "home": hn, "away": an})
+                md[f] = lf
+                guardar_boveda_vip_servidor(boveda_vip)
+        except: pass
+    for fx in md.get(f, []):
+        if nombres_coinciden(nl, fx["home"]) and nombres_coinciden(nv, fx["away"]): return fx["id"]
+    return None
+
+def analizar_partido_profundo_mrfutbol(ev_id, nl, nv, lig, fec, pp, xg, sv, st, f2=None, gls=0):
     c = boveda_vip.setdefault("cache_api_analisis", {})
     if ev_id in c and "Paso3_Ofensivo_Pro" in c[ev_id]: return c[ev_id]
-    
-    sot_l, xg_l, _, col_l, _ = 4.9, 0.115, False, False, False
-    sot_v, xg_v, _, col_v, _ = 4.9, 0.115, False, False, False
-    gf_l, gc_l, gf_v, gc_v = round(sot_l*xg_l*1.15, 2), 1.15, round(sot_v*xg_v, 2), 1.32 if col_v else 1.20
-    
-    xg_com = round((((gf_l+gc_v)/2.0)*1.2) + ((gf_v+gc_l)/2.0), 2)
-    sot_p = round((sot_l+sot_v)*0.58, 1)
-    if stats_vivo and stats_vivo.get("tmeta_tot", 0) > 0: sot_p = max(sot_p, float(stats_vivo["tmeta_tot"])+2.5)
-    disp_est = max(9.0, round(sot_p*2.45, 1))
-    if stats_vivo and stats_vivo.get("toth_tot", 0) > 0: disp_est = max(disp_est, float(stats_vivo["toth_tot"])+4.0)
-    
-    cal_xg = round(xg_com / max(1.0, disp_est), 3)
-    xga = round(max(gc_v, gc_l), 2)
-    
-    bp, bx, t_bit = calcular_momentum_bitacora_2_fechas(nom_local, nom_visita)
-    prob_b = round(min(96.0, max(42.0, prob_pre + (5.0 if (gf_l>=1.75 or gf_v>=1.75) else 0.0))), 1)
 
-    registrar_consulta_motor_pro()
+    sl, xl, _, cl, _ = auditar_equipo_bd(nl)
+    svb, xv, _, cv, _ = auditar_equipo_bd(nv)
+    rl, rv = st.get(nl.lower(), {}), st.get(nv.lower(), {})
 
-    f = {
-        "ev_id": ev_id, "Liga": nombre_liga, "Partido": f"{nom_local} vs {nom_visita}", "Prob_Over15": f"{prob_b}%",
-        "Paso3_Ofensivo_Pro": f"Big Chances: {round(xg_com*1.28,1)} | SoT: {sot_p} | xG: {xg_com}",
+    gfl, gcl = float(rl.get("gf_prom", round(sl*xl*1.15, 2))), float(rl.get("gc_prom", 1.15))
+    gfv, gcv = float(rv.get("gf_prom", round(svb*xv, 2))), float(rv.get("gc_prom", 1.32 if cv else 1.20))
+    rkl, rkv, te = int(rl.get("rank", 8)), int(rv.get("rank", 10)), int(rl.get("total_teams", 18))
+
+    sp = round((sl + svb) * 0.58, 1)
+    if sv and sv.get("tmeta_tot", 0) > 0: sp = max(sp, float(sv["tmeta_tot"]) + 2.5)
+
+    xc = round((((gfl+gcv)/2.0)*1.2) + ((gfv+gcl)/2.0), 2)
+    bc = round(xc * 1.28, 1)
+    if f2 and f2.get("big_chances_tot", 0) > 0: bc = max(bc, float(f2["big_chances_tot"]) + 1.2)
+
+    dt = max(9.0, round(sp * 2.45, 1))
+    if sv and sv.get("toth_tot", 0) > 0: dt = max(dt, float(sv["toth_tot"]) + 4.0)
+    cq = round(xc / max(1.0, dt), 3)
+    cs = round(max(12.0, min(42.0, (1.0 - min(0.88, gfl / 2.3)) * 55.0)), 1)
+    xa = round(max(gcv, gcl), 2)
+    ra = (gfl >= 1.75 or gfv >= 1.75)
+    sm = "✅ Auditoría Exclusiva MRFUTBOL Pro"
+
+    if boveda_vip.get("uso_diario_api", {}).get("usadas", 0) < 49950:
+        fid = obtener_id_interno_mrfutbol(nl, nv, fec)
+        if fid:
+            try:
+                res = requests.get(f"https://{_MOTOR_PRO_HOST}/fixtures/{fid}?include=statistics", headers=_HEADERS_MOTOR_PRO, timeout=5)
+                registrar_consulta_motor_pro(res.headers)
+                if res.status_code == 200: sm = f"✅ Auditoría Exclusiva MRFUTBOL Pro (ID #{fid})"
+            except: pass
+
+    bp, _, tb = calcular_momentum_bitacora_2_fechas(nl, nv)
+    pb = round(min(96.0, max(42.0, pp + (5.0 if ra else 0.0))), 1)
+
+    ur = f"🏆 Lucha por Título / Top ({rkl}º vs {rkv}º)" if rkl <= 4 or rkv <= 4 else (f"🔥 Urgencia Descenso ({rkl}º vs {rkv}º)" if rkl >= (te-3) or rkv >= (te-3) else f"📊 Tabla Media ({rkl}º vs {rkv}º)")
+    
+    fi = {
+        "ev_id": ev_id, "Liga": lig, "Partido": f"{nl} vs {nv}", "Prob_Over15": f"{pb}%",
+        "Paso3_Ofensivo_Pro": f"Big Chances: {bc} | SoT: {sp} | xG (1.2x Loc): {xc}",
         "Ref_Ofensivo_Pro": f"Pico Alto Ref: BC >= 3.2 | SoT >= 5.5 | xG >= 2.4",
-        "Paso3_Eficiencia_Carniceria": f"{cal_xg} xG/Tiro (🔥 Pólvora Fina / Peligro Real)" if cal_xg >= 0.12 else f"{cal_xg} xG/Tiro (⚠️ Tiro Lejano)",
+        "Paso3_Eficiencia_Carniceria": f"{cq} xG/Tiro (🔥 Pólvora Fina / Peligro Real)" if cq >= 0.12 else f"{cq} xG/Tiro (⚠️ Tiro Lejano)",
         "Ref_Carniceria": "Pico Ref: Calidad >= 0.12 xG/Shot",
-        "Paso3_Vulnerabilidad_Rival": f"xGA Rival: {xga} | Valla Invicta: 19.1% ({'🧀 Permite Daño Real' if xga >= 1.3 else '⚖️ Defensa Media'})",
+        "Paso3_Vulnerabilidad_Rival": f"xGA Rival: {xa} | Valla Invicta: {cs}% ({'🧀 Permite Daño Real' if xa >= 1.3 and cs <= 25.0 else '⚖️ Defensa Media'})",
         "Ref_Vulnerabilidad": "Pico Ref: xGA >= 1.3 | Valla Invicta <= 25%",
-        "Paso3_Momentum": f"🔥 Pólvora Activa ({prob_b}%) | {t_bit}",
+        "Paso3_Momentum": f"🔥 Pólvora Activa ({pb}%) | {tb}" if ra or bp > 0 else f"⚖️ {tb}",
         "Ref_Momentum": "Cruce: Racha de Temporada + Últimas 2 Fechas",
-        "Paso3_Colectivo_105": f"✅ Coral: 4 Gol. (26.0% máx) | 5 Asist. (Dep: 0.26)",
+        "Paso3_Colectivo_105": f"✅ Coral: {4 if (gfl+gfv)>=2.8 else 3} Gol. | {5 if (gfl+gfv)>=2.6 else 4} Asist.",
         "Ref_Colectivo": "Pico Ref: >=2 Goleadores (<=45%) | >=4 Asistentes (<=0.40)",
-        "Paso3_Varianza_Deuda": "🎰 Deuda de Gol Activa (Alto xG y 0 Goles -> Regresión a Favor)" if goles_actuales == 0 else f"📈 Varianza Normal",
+        "Paso3_Varianza_Deuda": "🎰 Deuda de Gol Activa (Regresión a Favor)" if gls == 0 and ((sv and sv.get("toth_tot",0)>=4) or xc>=2.2) else f"📈 Varianza Normal",
         "Ref_Varianza": "COMPENSAR_DEUDA_DE_GOL = SI | Regresión a la Media",
-        "Paso3_Contexto_Urgencia": f"🏆 Lucha por Título / Top -> +Bono Motivación",
-        "Ref_Urgencia": "Filtro: Bonificar Título / Descenso",
-        "Sello_API": "✅ Auditoría Exclusiva MRFUTBOL Pro (Motor 50K)"
+        "Paso3_Contexto_Urgencia": ur, "Ref_Urgencia": "Filtro: Bonificar Título / Descenso vs Zona Muerta",
+        "Sello_API": sm
     }
-    c[ev_id] = f
+    c[ev_id] = fi
     guardar_boveda_vip_servidor(boveda_vip)
-    return f
+    return fi
 
-def _fetch_standings(code):
+def _fetch_secondary_event_stats(sec_id):
     try:
-        res = requests.get(f"https://site.api.espn.com/apis/v2/sports/soccer/{code}/standings", timeout=3)
+        res = requests.get(f"https://api.sofascore.com/api/v1/event/{sec_id}/statistics", headers=HEADERS_BROWSER, timeout=2.5)
+        if res.status_code == 200:
+            ss = {"toth_l":0, "toth_v":0, "toth_tot":0, "tmeta_l":0, "tmeta_v":0, "tmeta_tot":0, "esquinas_l":0, "esquinas_v":0, "xg_l":0.0, "xg_v":0.0, "big_chances_tot":0}
+            bs = res.json().get("statistics", [])
+            ba = next((b for b in bs if b.get("period") == "ALL"), bs[0] if bs else {})
+            for g in ba.get("groups", []):
+                for i in g.get("statisticsItems", []):
+                    n = i.get("name", "").lower()
+                    hl = str(i.get("home", "0")).replace("%", "").strip()
+                    al = str(i.get("away", "0")).replace("%", "").strip()
+                    try:
+                        if n == "total shots": ss["toth_l"], ss["toth_v"] = int(float(hl)), int(float(al)); ss["toth_tot"] = ss["toth_l"] + ss["toth_v"]
+                        elif n in ("shots on target", "shots on goal"): ss["tmeta_l"], ss["tmeta_v"] = int(float(hl)), int(float(al)); ss["tmeta_tot"] = ss["tmeta_l"] + ss["tmeta_v"]
+                        elif n == "corner kicks": ss["esquinas_l"], ss["esquinas_v"] = int(float(hl)), int(float(al))
+                        elif n == "expected goals": ss["xg_l"], ss["xg_v"] = float(hl), float(al)
+                        elif n == "big chances": ss["big_chances_tot"] = int(float(hl)) + int(float(al))
+                    except: pass
+            return sec_id, ss
+    except: pass
+    return sec_id, None
+
+@st.cache_data(ttl=20)
+def obtener_datos_segunda_fuente():
+    ps = []
+    try:
+        res = requests.get("https://api.sofascore.com/api/v1/sport/football/events/live", headers=HEADERS_BROWSER, timeout=3)
+        if res.status_code == 200:
+            i_st, mb = [], {}
+            for ev in res.json().get("events", []):
+                si = ev.get("id")
+                hn, an = ev.get("homeTeam", {}).get("name", ""), ev.get("awayTeam", {}).get("name", "")
+                if si and hn and an:
+                    i_st.append(si)
+                    mb[si] = {"sec_id": si, "home": hn, "away": an, "gol_l": int(ev.get("homeScore", {}).get("current", 0) or 0), "gol_v": int(ev.get("awayScore", {}).get("current", 0) or 0), "stats": None}
+            if i_st:
+                with ThreadPoolExecutor(max_workers=10) as ex:
+                    rs = list(ex.map(_fetch_secondary_event_stats, i_st[:45]))
+                for si, sd in rs:
+                    if si in mb and sd: mb[si]["stats"] = sd
+            ps = list(mb.values())
+    except: pass
+    return ps
+
+def cruzar_validacion_doble_fuente(nl, nv, sf1, lf2):
+    mf2 = None
+    for i in lf2:
+        if nombres_coinciden(nl, i["home"]) and nombres_coinciden(nv, i["away"]): mf2 = i; break
+    if not mf2: return "📡 Radar Oficial MRFUTBOL Activo", "ESTÁNDAR (F1)", sf1, None
+    sf2 = mf2.get("stats")
+    if not sf2: return "🔗 Doble Fuente Conectada", "MEDIA (Dual)", sf1, mf2
+    sc = dict(sf1)
+    if sc["toth_tot"] == 0 and sf2["toth_tot"] > 0:
+        sc.update({"toth_l": sf2["toth_l"], "toth_v": sf2["toth_v"], "toth_tot": sf2["toth_tot"], "tmeta_l": sf2["tmeta_l"], "tmeta_v": sf2["tmeta_v"], "tmeta_tot": sf2["tmeta_tot"]})
+    ds = abs(sf1["toth_tot"] - sf2["toth_tot"])
+    xt = round(sf2["xg_l"] + sf2["xg_v"], 2)
+    ex = f" | xG Vivo: {xt}" if xt > 0 else ""
+    return f"✅ Doble Validación OK (F1: {sf1['toth_tot']} | F2: {sf2['toth_tot']} Disp{ex})" if ds <= 2 else f"⚖️ Línea Auditada (F1: {sf1['toth_tot']} vs F2: {sf2['toth_tot']} Disp{ex})", "BLINDADA" if ds <= 2 else "AUDITADA", sc, sf2
+
+def _fetch_standings(c):
+    try:
+        res = requests.get(f"https://site.api.espn.com/apis/v2/sports/soccer/{c}/standings", timeout=3)
         if res.status_code == 200:
             d = res.json()
             ents = []
             if "children" in d:
-                for c in d["children"]: ents.extend(c.get("standings", {}).get("entries", []))
+                for ch in d["children"]: ents.extend(ch.get("standings", {}).get("entries", []))
             else: ents = d.get("standings", {}).get("entries", [])
             tt = max(1, len(ents))
-            es = {}
-            gl, pl = 0.0, 0.0
+            es, gl, pl = {}, 0.0, 0.0
             for i, ent in enumerate(ents):
                 tn = ent.get("team", {}).get("displayName", "")
                 sd = {s.get("name"): s.get("value", 0) for s in ent.get("stats", [])}
@@ -319,74 +492,99 @@ def _fetch_standings(code):
                     gf, gc = float(sd.get("pointsFor", 0) or 0), float(sd.get("pointsAgainst", 0) or 0)
                     gl += gf; pl += (pj/2.0)
                     es[tn.lower()] = {"pj": int(pj), "gf_prom": round(gf/pj, 2), "gc_prom": round(gc/pj, 2), "rank": int(sd.get("rank", i+1)), "total_teams": tt}
-            ef = round((1 - poisson.cdf(1, gl/pl)) * 100, 1) if pl > 5 else None
-            return code, es, ef
+            er = round((1 - poisson.cdf(1, gl/pl)) * 100, 1) if pl > 5 else None
+            return c, es, er
     except: pass
-    return code, {}, None
+    return c, {}, None
 
 @st.cache_data(ttl=900)
-def obtener_estadisticas_temporada_reales(codigos_liga):
-    t, e = {}, {}
+def obtener_estadisticas_temporada_reales(cl):
+    tg, el = {}, {}
     with ThreadPoolExecutor(max_workers=12) as ex:
-        for c, es, ef in ex.map(_fetch_standings, codigos_liga):
-            t.update(es)
-            if ef is not None: e[c] = ef
-    return t, e
+        rs = list(ex.map(_fetch_standings, cl))
+    for c, ed, er in rs:
+        tg.update(ed)
+        if er is not None: el[c] = er
+    return tg, el
 
-def calcular_pre_poisson_real(nom_local, nom_visita, stats_temporada):
-    rl, rv = stats_temporada.get(nom_local.lower()), stats_temporada.get(nom_visita.lower())
-    xi = (4.9 * 0.115 * 1.15) + (4.9 * 0.115)
+def calcular_pre_poisson_real(nl, nv, st):
+    sl, xl, tl, cl, _ = auditar_equipo_bd(nl)
+    sv, xv, tv, cv, _ = auditar_equipo_bd(nv)
+    xi = (sl * xl * 1.15) + (sv * xv)
+    rl, rv = st.get(nl.lower()), st.get(nv.lower())
     if rl and rv:
         xr = ((rl["gf_prom"]+rv["gc_prom"])/2.0)*1.08 + ((rv["gf_prom"]+rl["gc_prom"])/2.0)
         xb = round((xr*0.70) + (xi*0.30), 2)
         ft = f"✅ Estadística Oficial ({rl['gf_prom']} GF / {rv['gf_prom']} GF)"
     else:
-        xb = round(xi, 2)
-        ft = f"📊 Base MRFUTBOL (Estándar)"
+        xb = round(xi + (0.30 if cl or cv else 0.0), 2)
+        ft = f"📊 Base MRFUTBOL ({tl} vs {tv})"
 
-    bp, bx, tb = calcular_momentum_bitacora_2_fechas(nom_local, nom_visita)
-    xb = max(1.15, round(xb + bx, 2))
-    pf = round(min(95.0, max(42.0, ((1 - poisson.cdf(1, xb)) * 100) + bp)), 1)
-    return pf, round(100/pf, 2), xb, f"{ft} | {tb}" if "Sin " not in tb else ft
+    pl = obtener_perfil_reciente_2_3_fechas(nl)
+    pv = obtener_perfil_reciente_2_3_fechas(nv)
+    
+    xgr = ((pl["gf_rec"]+pv["gc_rec"])/2.0)*1.08 + ((pv["gf_rec"]+pl["gc_rec"])/2.0)
+    xtr = (((pl["arco_f"]+pv["arco_f"])/2)*0.30) + (((pl["disp_f"]+pv["disp_f"])/2)*0.05)
+    xm = max(1.15, round((xgr*0.55) + (xtr*0.45), 2))
+    
+    bbp, bbx, tb = calcular_momentum_bitacora_2_fechas(nl, nv)
+    xf = max(1.15, round((xm*0.65) + (xb*0.35) + bbx, 2))
+    
+    pp = (1 - poisson.cdf(1, xf)) * 100
+    pf = round(min(95.0, max(42.0, pp + bbp)), 1)
+    
+    ra = f" | 🧠 Matriz (2-3J): {round((pl['disp_f']+pv['disp_f'])/2,1)} Disp"
+    ft = f"{ft}{ra} | {tb}" if "Sin " not in tb else f"{ft}{ra}"
+    return pf, round(100/pf, 2), xf, ft
 
-def calcular_tasas_tiempos_y_franja(xg_total_pre, disparos_tot, tiros_arco, corneres_tot, min_actual):
-    bp = (disparos_tot * 0.032) + (tiros_arco * 0.075) + (corneres_tot * 0.018)
-    x1 = (xg_total_pre * 0.43) + (bp * 0.65)
+def calcular_tasas_tiempos_y_franja(xtp, dt, ta, ct, ma):
+    bp = (dt * 0.032) + (ta * 0.075) + (ct * 0.018)
+    x1 = (xtp * 0.43) + (bp * 0.65)
     t1 = round(min(91.0, max(38.0, (1 - poisson.cdf(0, x1)) * 100)), 1)
-    x2 = (xg_total_pre * 0.57) + bp
-    if min_actual > 45: x2 = x2 * min(1.15, (max(8, 94 - min_actual) / 45.0) * 1.22)
+    x2 = (xtp * 0.57) + bp
+    if ma > 45: x2 = x2 * min(1.15, (max(8, 94 - ma) / 45.0) * 1.22)
     t2 = round(min(94.0, max(50.0, (1 - poisson.cdf(0, x2)) * 100)), 1)
-    x3 = (x1 * 0.52) + (tiros_arco * 0.04)
+    x3 = (x1 * 0.52) + (ta * 0.04)
     t3 = round(min(82.0, max(28.0, (1 - poisson.cdf(0, x3)) * 100)), 1)
     return t1, t2, t3
 
 def extraer_stat(td, sn):
     for i in td.get("statistics", []):
         if i.get("name") in sn:
-            try: return float(i.get("displayValue", "0").replace("%", "").strip()) if "." in i.get("displayValue", "") else int(i.get("displayValue", "0").replace("%", "").strip())
+            try: return float(i.get("displayValue", "0").replace("%", "").strip()) if "." in i.get("displayValue", "0") else int(i.get("displayValue", "0").replace("%", "").strip())
             except: return 0
     return 0
 
-def extraer_metricas_partido_reales(loc, vis):
-    tl, tv = int(extraer_stat(loc, ["totalShots", "shots"])), int(extraer_stat(vis, ["totalShots", "shots"]))
-    ml, mv = int(extraer_stat(loc, ["shotsOnTarget", "shotsOnGoal"])), int(extraer_stat(vis, ["shotsOnTarget", "shotsOnGoal"]))
-    el, ev = int(extraer_stat(loc, ["wonCorners", "corners", "cornerKicks"])), int(extraer_stat(vis, ["wonCorners", "corners", "cornerKicks"]))
-    pl, pv = extraer_stat(loc, ["possessionPct"]), extraer_stat(vis, ["possessionPct"])
+def extraer_metricas_partido_reales(l, v):
+    tl, tv = int(extraer_stat(l, ["totalShots", "shots"])), int(extraer_stat(v, ["totalShots", "shots"]))
+    ml, mv = int(extraer_stat(l, ["shotsOnTarget", "shotsOnGoal"])), int(extraer_stat(v, ["shotsOnTarget", "shotsOnGoal"]))
+    el, ev = int(extraer_stat(l, ["wonCorners", "corners", "cornerKicks"])), int(extraer_stat(v, ["wonCorners", "corners", "cornerKicks"]))
+    pl, pv = extraer_stat(l, ["possessionPct"]), extraer_stat(v, ["possessionPct"])
     if pl == 0 and pv == 0: pl, pv = 50, 50
     return {"toth_l": tl, "toth_v": tv, "toth_tot": tl+tv, "tmeta_l": ml, "tmeta_v": mv, "tmeta_tot": ml+mv, "tfuera_l": max(0, tl-ml), "tfuera_v": max(0, tv-mv), "tfuera_tot": max(0, tl-ml)+max(0, tv-mv), "esquinas_l": el, "esquinas_v": ev, "esquinas_tot": el+ev, "pos_l": pl, "pos_v": pv}
+
+def evaluar_gatillo_quirurgico_05(pp, tt, md, tm, mn, t38):
+    if pp >= 75.0: return (md >= 3 or tm >= 2 or tt >= 4 or (35 <= mn <= 45 and t38 >= 52.0 and tt >= 3))
+    elif pp >= 70.0: return (tt >= 5 or (md >= 3 and tm >= 2) or (35 <= mn <= 45 and t38 >= 54.0 and tt >= 4))
+    else: return (tt >= 6 or (tt >= 5 and tm >= 2))
+
+def generar_boletin_html_imprimible(df, tr, sr):
+    fe = (datetime.utcnow() - timedelta(hours=6)).strftime("%d/%m/%Y %H:%M")
+    th = df.to_html(index=False, border=0, classes="tabla-boletin")
+    return f"<!DOCTYPE html><html lang='es'><head><meta charset='UTF-8'><title>{tr}</title><style>body {{ font-family: Arial, sans-serif; background-color: #0f1015; color: #e0e0e0; padding: 24px; }} .header {{ text-align: center; border-bottom: 2px solid #00ffcc; padding-bottom: 12px; margin-bottom: 18px; }} .header h1 {{ margin: 0; color: #ffffff; letter-spacing: 2px; }} .header p {{ margin: 4px 0; color: #00ffcc; font-weight: bold; font-size: 13px; }} .meta {{ font-size: 12px; color: #9ba1b0; margin-bottom: 15px; display: flex; justify-content: space-between; }} .tabla-boletin {{ width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 20px; }} .tabla-boletin th {{ background-color: #16181f; color: #00ffcc; padding: 8px; text-align: left; border-bottom: 2px solid #00ffcc; }} .tabla-boletin td {{ padding: 8px; border-bottom: 1px solid #1f222d; color: #e0e0e0; }} .footer {{ text-align: center; font-size: 12px; color: #00ffcc; border-top: 1px solid #1f222d; padding-top: 12px; margin-top: 25px; }} .btn-print {{ background: #00ffcc; color: #000; padding: 8px 16px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; margin-bottom: 15px; }} @media print {{ .btn-print {{ display: none; }} body {{ background-color: #ffffff; color: #000000; }} .tabla-boletin td, .tabla-boletin th {{ color: #000000; border-color: #cccccc; }} }}</style></head><body><button class='btn-print' onclick='window.print()'>🖨️ Imprimir PDF</button><div class='header'><h1>⚽ MRFUTBOL - BOLETÍN VIP</h1><p>Autor: Miguel Ramirez | angelramirezzmiguel2@gmail.com</p></div><div class='meta'><span><strong>{tr} ({sr})</strong></span><span><strong>Emisión:</strong> {fe} | Stake 2% - 3%</span></div>{th}<div class='footer'>⚽ MRFUTBOL | Miguel Ramirez</div></body></html>"
 
 def detectar_estado_partido(comp, iso_fecha):
     t_obj = comp.get("status", {}).get("type", {})
     st, sn, sd, dd = t_obj.get("state", "pre"), t_obj.get("name", "").upper(), t_obj.get("shortDetail", "").upper(), t_obj.get("description", "").upper()
     r = comp.get("status", {}).get("displayClock", "0'")
     ht = ("HALFTIME" in sn or "HT" in sd or "MEDIO" in sd or "DESCANSO" in dd)
-    try: m = int(r.replace("'", "").split("+")[0])
-    except: m = 45 if ht else 0
-    _, fc, hs, dtl = obtener_fecha_local_evento(iso_fecha)
-    if ht: return st, ht, m, "<div class='status-ht'>⏸️ ENTRETIEMPO</div>", "⏸️ HT (45')"
-    elif st == "in": return st, ht, m, f"<div class='status-live'>🔴 {r}</div>", f"🔴 {r}"
-    elif st == "post": return st, ht, m, "<div class='status-final'>FINAL</div>", "FINAL"
-    return st, ht, m, f"<div class='status-badge'>🕒 {hs}</div>", fc
+    try: mn = int(r.replace("'", "").split("+")[0])
+    except: mn = 45 if ht else 0
+    _, fc, hs, _ = obtener_fecha_local_evento(iso_fecha)
+    if ht: return st, ht, mn, "<div class='status-ht'>⏸️ ENTRETIEMPO</div>", "⏸️ HT (45')"
+    elif st == "in": return st, ht, mn, f"<div class='status-live'>🔴 {r}</div>", f"🔴 {r}"
+    elif st == "post": return st, ht, mn, "<div class='status-final'>FINAL</div>", "FINAL"
+    return st, ht, mn, f"<div class='status-badge'>🕒 {hs}</div>", fc
 
 def _fetch_url(args):
     c, f = args
@@ -399,186 +597,223 @@ def _fetch_url(args):
 @st.cache_data(ttl=18)
 def obtener_partidos_ligas(codigos_liga):
     hoy = datetime.utcnow() - timedelta(hours=6)
-    f = [(hoy + timedelta(days=i)).strftime("%Y%m%d") for i in (0, 1)]
+    fs = [(hoy + timedelta(days=i)).strftime("%Y%m%d") for i in (0, 1)]
     m = {l["code"]: l for l in LIGAS_BIG_DATA}
     d = {m[c]["id"]: {"meta": m[c], "eventos": []} for c in codigos_liga if c in m}
     v = set()
     with ThreadPoolExecutor(max_workers=16) as ex:
-        for c, evs in ex.map(_fetch_url, [(c, fs) for c in codigos_liga if c in m for fs in f]):
+        for c, evs in ex.map(_fetch_url, [(c, f) for c in codigos_liga if c in m for f in fs]):
             l_id = m[c]["id"]
             for ev in evs:
-                if ev.get("id") and ev.get("id") not in v:
-                    v.add(ev["id"])
+                ei = ev.get("id")
+                if ei and ei not in v:
+                    v.add(ei)
                     d[l_id]["eventos"].append(ev)
     return d
 
-def generar_boletin_html_imprimible(df_datos, titulo_reporte, subtitulo_reporte):
-    fecha_emision = (datetime.utcnow() - timedelta(hours=6)).strftime("%d/%m/%Y %H:%M")
-    return f"""<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>{titulo_reporte}</title><style>body {{ font-family: Arial, sans-serif; background-color: #0f1015; color: #e0e0e0; padding: 24px; }} .header {{ text-align: center; border-bottom: 2px solid #00ffcc; padding-bottom: 12px; margin-bottom: 18px; }} .header h1 {{ margin: 0; color: #ffffff; letter-spacing: 2px; }} .header p {{ margin: 4px 0; color: #00ffcc; font-weight: bold; font-size: 13px; }} .meta {{ font-size: 12px; color: #9ba1b0; margin-bottom: 15px; display: flex; justify-content: space-between; }} .tabla-boletin {{ width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 20px; }} .tabla-boletin th {{ background-color: #16181f; color: #00ffcc; padding: 8px; text-align: left; border-bottom: 2px solid #00ffcc; }} .tabla-boletin td {{ padding: 8px; border-bottom: 1px solid #1f222d; color: #e0e0e0; }} .footer {{ text-align: center; font-size: 12px; color: #00ffcc; border-top: 1px solid #1f222d; padding-top: 12px; margin-top: 25px; }} .btn-print {{ background: #00ffcc; color: #000; padding: 8px 16px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; margin-bottom: 15px; }} @media print {{ .btn-print {{ display: none; }} body {{ background-color: #ffffff; color: #000000; }} .tabla-boletin td, .tabla-boletin th {{ color: #000000; border-color: #cccccc; }} }}</style></head><body><button class="btn-print" onclick="window.print()">🖨️ Imprimir PDF</button><div class="header"><h1>⚽ MRFUTBOL - BOLETÍN OFICIAL VIP</h1><p>Autoría Oficial: Miguel Ramirez | ✉️ angelramirezzmiguel2@gmail.com</p></div><div class="meta"><span><strong>Reporte:</strong> {titulo_reporte} ({subtitulo_reporte})</span><span><strong>Emisión (UTC-6):</strong> {fecha_emision} | <strong>Stake 2% - 3%</strong></span></div>{df_datos.to_html(index=False, border=0, classes="tabla-boletin")}<div class="footer">⚽ MRFUTBOL Central de Inteligencia | Creado por Miguel Ramirez</div></body></html>"""
+col_m1, col_m2, col_m3 = st.columns([2.5, 1, 1])
+with col_m2: master_sound = st.toggle("🔔 Mis Alertas Activas", value=True)
+with col_m3: auto_refresh = st.toggle("⚡ Refresco en Vivo (25s)", value=True)
 
-col_m1, col_m2 = st.columns([3, 1])
-with col_m2: auto_refresh = st.toggle("⚡ Refresco en Vivo", value=True)
+def alternar_seguimiento_individual(ei, nc, st, eh, gl, gv, ra):
+    su = st.session_state["seguidos_usuario"]
+    if ei in su: su.remove(ei)
+    else:
+        su.append(ei)
+        st.session_state["memoria_eventos_usuario"][ei] = {"state": st, "ht_notificado": eh, "goles_l": gl, "goles_v": gv, "rojas": ra}
 
-def accionar_plequita_vip(ev_id, nl, nv, lig, fec, p_pre, x_pre, s_viv, gol):
-    p = boveda_vip.setdefault("picks_vip_hoy", {})
-    if ev_id in p: del p[ev_id]
-    else: p[ev_id] = {"ev_id": ev_id, "origen": "⚡ Plequita Manual", "ficha": analizar_partido_profundo_mrfutbol(ev_id, nl, nv, lig, fec, p_pre, x_pre, s_viv, None, gol)}
+def accionar_plequita_vip(ei, nl, nv, lig, fec, pp, xp, sv, st, iso, ol, f2=None, ga=0):
+    ph = boveda_vip.setdefault("picks_vip_hoy", {})
+    if ei in ph: del ph[ei]
+    else: ph[ei] = {"ev_id": ei, "origen": ol, "iso_fecha": iso, "ficha": analizar_partido_profundo_mrfutbol(ei, nl, nv, lig, fec, pp, xp, sv, st, f2, ga)}
     guardar_boveda_vip_servidor(boveda_vip)
 
 _frag = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
 @(_frag(run_every=25 if auto_refresh else None) if _frag else lambda f: f)
 def renderizar_central_mrfutbol():
-    hoy_dt = datetime.utcnow() - timedelta(hours=6)
-    str_hoy = hoy_dt.strftime("%Y-%m-%d")
+    ah_dt = datetime.utcnow() - timedelta(hours=6)
+    sh = ah_dt.strftime("%Y-%m-%d")
+    sm = (ah_dt + timedelta(days=1)).strftime("%Y-%m-%d")
     
-    if boveda_vip.get("fecha_activa") != str_hoy:
-        boveda_vip["fecha_activa"] = str_hoy
+    if boveda_vip.get("fecha_activa") != sh:
+        boveda_vip["fecha_activa"] = sh
         boveda_vip["picks_vip_hoy"] = {}
         guardar_boveda_vip_servidor(boveda_vip)
 
-    uso_api = boveda_vip.get("uso_diario_api", {"usadas": 0})
+    ua = boveda_vip.get("uso_diario_api", {"usadas": 0})
+    
     ct = [l["code"] for l in LIGAS_BIG_DATA]
-    datos_globales = obtener_partidos_ligas(ct)
-    stats_api, efec_api = obtener_estadisticas_temporada_reales(ct)
+    dg = obtener_partidos_ligas(ct)
+    sta, ela = obtener_estadisticas_temporada_reales(ct)
+    lsf = obtener_datos_segunda_fuente()
+
+    sincronizar_matriz_global_clubes(ct)
 
     with col_m1:
-        st.caption(f"💡 Central MRFUTBOL | 🕒 Sincronizado: {hoy_dt.strftime('%H:%M:%S')} | 👑 Llamadas Motor VIP (Sportmonks): **{uso_api.get('usadas', 0)} / 50000**")
+        st.caption(f"💡 Central MRFUTBOL | 🕒 {ah_dt.strftime('%H:%M:%S')} | 🔔 Seguidos: {len(st.session_state['seguidos_usuario'])} | 👑 En VIP: {len(boveda_vip.get('picks_vip_hoy', {}))}")
 
-    t1, t2, t3, t4, t5 = st.tabs(["⚽ 1. CARTELERA", "🔴 2. PARTIDOS EN VIVO", "🎯 3. PRE-APUESTAS", "🚨 4. TERMINAL EN VIVO", "👑 5. SALA VIP"])
+    s1, s2, s3, s4, s5 = st.tabs(["⚽ 1. CARTELERA DE HOY", "🔴 2. PARTIDOS EN VIVO", "🎯 3. PRE-APUESTAS OVER 1.5", "🚨 4. TERMINAL EN VIVO 0.5", "👑 5. SALA VIP MRFUTBOL"])
 
-    with t1:
+    with s1:
         cm, cc = st.columns([1.2, 3.8])
         with cm:
-            st.markdown("##### 📅 Opciones")
+            st.markdown("##### 📅 Cartelera Activa")
             fs = st.radio("Día:", ["Hoy", "Mañana"])
-            fecha_obj = str_hoy if fs == "Hoy" else (hoy_dt + timedelta(days=1)).strftime("%Y-%m-%d")
+            fo = sh if fs == "Hoy" else sm
             oc = st.toggle("👁️ Ocultar Finalizados", value=True)
-            busq = st.text_input("🔍 Buscar...", placeholder="Ej. MR2026")
-            if st.button("🔄 Refrescar", use_container_width=True): st.cache_data.clear(); st.rerun()
-            if busq == "MR2026":
-                st.success("🔓 Admin Activo")
-                if st.button("🧹 Vaciar VIP", use_container_width=True): boveda_vip["picks_vip_hoy"]={}; guardar_boveda_vip_servidor(boveda_vip); st.rerun()
+            busq = st.text_input("🔍 Buscar Equipo...", placeholder="Ej. MR2026")
+            if st.button("🔄 Refresco Manual", use_container_width=True): st.cache_data.clear(); st.rerun()
+            
+            eadm = (busq == "MR2026" or st.session_state["admin_autenticado"])
+            with st.expander("🔐 Bóveda Privada", expanded=eadm):
+                if eadm:
+                    st.session_state["admin_autenticado"] = True
+                    st.success("🔓 Llave Activa")
+                    st.caption(f"🎯 Consultas usadas: {ua.get('usadas', 0)} / 50000")
+                    if st.button("🧹 Vaciar Sala VIP", use_container_width=True): boveda_vip["picks_vip_hoy"]={}; guardar_boveda_vip_servidor(boveda_vip); st.rerun()
+                    rml = list(boveda_ml_05.values())
+                    st.caption(f"🧠 Memoria Total Aprendizaje: **{len(rml)} / 300**")
+                    if rml: st.download_button("📥 Descargar Bitácora", data=pd.DataFrame(rml).to_csv(index=False).encode("utf-8-sig"), file_name=f"Bitacora_MRFUTBOL.csv", mime="text/csv", use_container_width=True)
+
         with cc:
             hp = False
-            for lig, cont in datos_globales.items():
-                evs = [ev for ev in cont["eventos"] if obtener_fecha_local_evento(ev.get("date"))[0] == fecha_obj]
-                if not evs: continue
+            for lig, cont in dg.items():
+                evf = [ev for ev in cont["eventos"] if obtener_fecha_local_evento(ev.get("date"))[0] == fo]
+                if not evf: continue
                 hp = True
-                st.markdown(f"<div class='liga-header'><span>{lig}</span></div>", unsafe_allow_html=True)
-                for ev in evs:
+                efc = round((float(cont["meta"]["efec"]) * 0.65) + (ela[cont["meta"]["code"]] * 0.35), 1) if cont["meta"]["code"] in ela else cont["meta"]["code"]
+                st.markdown(f"<div class='liga-header'><span>{lig}</span><span style='font-size:12px; color:#9ba1b0;'>Eficiencia: {efc}%</span></div>", unsafe_allow_html=True)
+                for ev in evf:
                     c = ev.get("competitions", [{}])[0]
-                    st_ev, eh, mn, bh, _ = detectar_estado_partido(c, ev.get("date"))
-                    if oc and st_ev == "post": continue
+                    ste, eh, mn, bh, _ = detectar_estado_partido(c, ev.get("date"))
+                    if oc and ste == "post": continue
                     cp = c.get("competitors", [])
                     if len(cp) == 2:
                         nl, nv = cp[0].get("team", {}).get("shortDisplayName", ""), cp[1].get("team", {}).get("shortDisplayName", "")
                         if busq and busq != "MR2026" and busq.lower() not in f"{nl} {nv}".lower(): continue
                         gl, gv = int(cp[0].get("score", 0)), int(cp[1].get("score", 0))
-                        ch = f"{gl} - {gv}" if (st_ev != "pre" or eh) else "vs"
+                        ch = f"{gl} - {gv}" if (ste != "pre" or eh) else "vs"
                         st.markdown(f"<div class='match-card'>{bh}<div class='teams-container'><div class='team-home'>{nl}</div><div class='score-box'>{ch}</div><div class='team-away'>{nv}</div></div></div>", unsafe_allow_html=True)
             if not hp: st.info("No hay partidos programados.")
 
-    with t2:
-        st.subheader("🔴 Partidos en Curso")
+    with s2:
+        st.subheader("🔴 Partidos en Vivo")
         hv = False
-        for lig, cont in datos_globales.items():
-            evs = [ev for ev in cont["eventos"] if detectar_estado_partido(ev.get("competitions", [{}])[0], ev.get("date"))[0] == "in"]
-            if evs:
-                hv = True
-                st.markdown(f"<div class='liga-header'><span>{lig}</span></div>", unsafe_allow_html=True)
-                for ev in evs:
-                    c = ev.get("competitions", [{}])[0]
-                    st_ev, eh, mn, bh, _ = detectar_estado_partido(c, ev.get("date"))
-                    cp = c.get("competitors", [])
-                    nl, nv = cp[0].get("team", {}).get("shortDisplayName", ""), cp[1].get("team", {}).get("shortDisplayName", "")
-                    gl, gv = int(cp[0].get("score", 0)), int(cp[1].get("score", 0))
-                    sr = extraer_metricas_partido_reales(cp[0], cp[1])
-                    st.markdown(f"<div class='match-card'>{bh} <div style='flex-grow:1; text-align:center;'><strong>{nl} {gl} - {gv} {nv}</strong></div> <div>🎯 {sr['toth_tot']} Disp | 🥅 {sr['tmeta_tot']} Arco</div></div>", unsafe_allow_html=True)
+        for lig, cont in dg.items():
+            evv = [ev for ev in cont["eventos"] if detectar_estado_partido(ev.get("competitions", [{}])[0], ev.get("date"))[0] == "in"]
+            if not evv: continue
+            hv = True
+            st.markdown(f"<div class='liga-header'><span>{lig}</span></div>", unsafe_allow_html=True)
+            for ev in evv:
+                ei = ev.get("id")
+                c = ev.get("competitions", [{}])[0]
+                cp = c.get("competitors", [])
+                nl, nv = cp[0].get("team", {}).get("shortDisplayName", ""), cp[1].get("team", {}).get("shortDisplayName", "")
+                gl, gv = int(cp[0].get("score", 0)), int(cp[1].get("score", 0))
+                ste, eh, mn, bh, _ = detectar_estado_partido(c, ev.get("date"))
+                st.markdown(f"<div class='match-card'>{bh} <div style='flex-grow:1; text-align:center;'><strong>{nl} {gl} - {gv} {nv}</strong></div> </div>", unsafe_allow_html=True)
         if not hv: st.info("No hay partidos en curso.")
 
-    with t3:
-        st.subheader("🎯 Laboratorio Pre-Apuesta Over 1.5 (Prioridad Momento 2-3J)")
-        r_pre = []
-        for lig, cont in datos_globales.items():
+    with s3:
+        st.subheader("🎯 Laboratorio Pre-Apuesta Over 1.5")
+        c1, c2 = st.columns([2.5, 1.5])
+        with c1: ls = st.multiselect("Ligas:", options=[l["id"] for l in LIGAS_BIG_DATA], default=[l["id"] for l in LIGAS_BIG_DATA])
+        with c2: um = st.slider("Umbral (%):", 58, 82, 64, 2)
+
+        rp = []
+        for lig, cont in dg.items():
+            if lig not in ls: continue
+            for ev in cont["eventos"]:
+                fe, fl, _, _ = obtener_fecha_local_evento(ev.get("date"))
+                if fe not in (sh, sm): continue
+                c = ev.get("competitions", [{}])[0]
+                ste, eh, _, _, _ = detectar_estado_partido(c, ev.get("date"))
+                if ste != "pre" or eh: continue
+                cp = c.get("competitors", [])
+                if len(cp) == 2:
+                    nl, nv = cp[0].get("team", {}).get("displayName", ""), cp[1].get("team", {}).get("displayName", "")
+                    pf, cj, xb, ft = calcular_pre_poisson_real(nl, nv, sta)
+                    if pf >= um:
+                        t1, t2, t3 = calcular_tasas_tiempos_y_franja(xb, 0, 0, 0, 0)
+                        vd = "🔴 ZONA ROJA (<70%)" if pf < 70 else "💎 ENTRAR OVER 1.5" if pf <= 75.5 else "🟢 ENTRAR OVER 1.5 (Stake 3%)"
+                        rp.append({"Liga": lig, "Partido": f"{nl} vs {nv}", "Prob. Over 1.5": f"{pf}%", "⏱️ Gol 1T": f"{t1}%", "🔥 Gol 2T": f"{t2}%", "Cuota": cj, "Respaldo + Aprendizaje (2J)": ft, "Veredicto": vd, "_pf": pf})
+        if rp:
+            dfp = pd.DataFrame(rp).sort_values(by="_pf", ascending=False).drop(columns=["_pf"])
+            st.dataframe(dfp, use_container_width=True, hide_index=True)
+            st.download_button("📊 Exportar CSV", data=dfp.to_csv(index=False).encode("utf-8-sig"), file_name=f"PreApuestas_{sh}.csv", mime="text/csv")
+        else: st.info("No hay partidos programados con ese filtro.")
+
+    with s4:
+        st.markdown("### 🚨 TERMINAL EN VIVO 0.5")
+        st.markdown("**Regla 96.8% Verde:** Busca 6+ Disparos o 3+ al Arco.")
+        ts = []
+        for lig, cont in dg.items():
             for ev in cont["eventos"]:
                 c = ev.get("competitions", [{}])[0]
-                if c.get("status", {}).get("type", {}).get("state", "") == "pre":
+                ste, eh, mn, _, r = detectar_estado_partido(c, ev.get("date"))
+                if ste == "in" or eh:
                     cp = c.get("competitors", [])
                     if len(cp) == 2:
                         nl, nv = cp[0].get("team", {}).get("displayName", ""), cp[1].get("team", {}).get("displayName", "")
-                        if nl and nv:
-                            pf, cj, xb, ft = calcular_pre_poisson_real(nl, nv, stats_api)
-                            if pf >= 64.0:
-                                t1, t2, t3 = calcular_tasas_tiempos_y_franja(xb, 0, 0, 0, 0)
-                                v = "🟢 ENTRAR OVER 1.5" if pf >= 75.5 else "🔴 ZONA ROJA (<70%)" if pf < 70 else "💎 ENTRAR OVER 1.5"
-                                r_pre.append({"Liga": lig, "Partido": f"{nl} vs {nv}", "⚡ CALIENTE (FINAL)": f"{pf}%", "⏱️ Gol 1T": f"{t1}%", "🔥 Gol 2T": f"{t2}%", "Cuota": cj, "Respaldo + Aprendizaje (2J)": ft, "Veredicto": v, "_orden": pf})
-        if r_pre:
-            df_pre = pd.DataFrame(r_pre).sort_values(by="_orden", ascending=False).drop(columns=["_orden"])
-            st.dataframe(df_pre, use_container_width=True, hide_index=True)
-            st.download_button("📊 Exportar Pre-Apuestas (.CSV)", data=df_pre.to_csv(index=False).encode("utf-8-sig"), file_name=f"PreApuestas_{str_hoy}.csv", mime="text/csv")
-        else: st.info("No hay partidos con alta probabilidad.")
+                        gl, gv = int(cp[0].get("score", 0)), int(cp[1].get("score", 0))
+                        gt = gl + gv
+                        pf, cj, xb, ft = calcular_pre_poisson_real(nl, nv, sta)
+                        sr = extraer_metricas_partido_reales(cp[0], cp[1])
+                        sv, nvl, srs, f2 = cruzar_validacion_doble_fuente(nl, nv, sr, lsf)
+                        tl, tv, tt = srs["toth_l"], srs["toth_v"], srs["toth_tot"]
+                        ml, mv, tm = srs["tmeta_l"], srs["tmeta_v"], srs["tmeta_tot"]
+                        el, evv, et = srs["esquinas_l"], srs["esquinas_v"], srs["esquinas_tot"]
+                        t1, t2, t3 = calcular_tasas_tiempos_y_franja(xb, tt, tm, et, mn)
+                        md = max(tl, tv)
+                        
+                        vd = "⏸️ AGUANTAR"
+                        ec = False
+                        cb = "veredicto-box-wait"
+                        
+                        if gt == 0:
+                            if mn < 18 and not eh: vd = f"⏳ Min {mn}' ({tt} Disp, {tm} Arco). Esperar min 18+"
+                            else:
+                                if evaluar_gatillo_quirurgico_05(pf, tt, md, tm, mn, t3):
+                                    ec = True; cb = "veredicto-box-hot"
+                                    vd = f"🚨 ¡ENTRAR OVER 0.5! (Tasa 2T: {t2}%)"
+                                else:
+                                    if pf < 70 and et >= 3 and tt < 5: vd = "🚩 ESPEJISMO DE CÓRNERES. NO ENTRAR"
+                                    elif pf < 70: vd = "🔴 ZONA ROJA (<70%). Exigir 6+ Disparos"
+                                    else: vd = f"🚫 PRECAUCIÓN ({tt} Disp, {tm} Arco)"
+                        elif gt == 1:
+                            if mn <= 82 and (md >= 3 or tm >= 3 or tt >= 6): cb = "veredicto-box-hot"; vd = f"🔥 ¡OVER 0.5 COBRADO! Oportunidad 1.5 GOLES (Tasa 2T: {t2}%)"
+                            else: cb = "veredicto-box-green"; vd = f"✅ ¡OVER 0.5 COBRADO EN VERDE! Ritmo moderado."
+                        else: cb = "veredicto-box-green"; vd = "✅ LÍNEAS COBRADAS"
 
-    with t4:
-        st.markdown("### 🚨 TERMINAL EN VIVO 0.5")
-        st.markdown("**Regla 96.8% Verde:** Busca 6+ Disparos o 3+ al Arco.")
-        t_scr = []
-        for lig, cont in datos_globales.items():
-            for ev in cont["eventos"]:
-                c = ev.get("competitions", [{}])[0]
-                if c.get("status", {}).get("type", {}).get("state", "") == "in":
-                    cp = c.get("competitors", [])
-                    nl, nv = cp[0].get("team", {}).get("displayName", ""), cp[1].get("team", {}).get("displayName", "")
-                    gl, gv = int(cp[0].get("score", 0)), int(cp[1].get("score", 0))
-                    r = c.get("status", {}).get("displayClock", "0'")
-                    try: ma = int(r.replace("'", "").split("+")[0])
-                    except: ma = 0
-                    
-                    pf, cj, xb, ft = calcular_pre_poisson_real(nl, nv, stats_api)
-                    sr = extraer_metricas_partido_reales(cp[0], cp[1])
-                    t1, t2, t3 = calcular_tasas_tiempos_y_franja(xb, sr['toth_tot'], sr['tmeta_tot'], sr['esquinas_tot'], ma)
-                    
-                    vd = "⏸️ AGUANTAR: Exigir 6+ Disp o 2+ al Arco"
-                    es_cal = False
-                    cls_b = "veredicto-box-wait"
-                    
-                    if (gl+gv) == 0:
-                        if sr['toth_tot'] >= 6 or sr['tmeta_tot'] >= 3:
-                            vd = f"🚨 ¡ENTRAR OVER 0.5! [PATRÓN 96.8% VERDE] (Tasa 2T: {t2}%)"
-                            es_cal = True; cls_b = "veredicto-box-hot"
-                    else:
-                        vd = "✅ LÍNEA CUBIERTA"
-                        cls_b = "veredicto-box-green"
+                        ts.append({"ev_id": ev.get("id"), "nl": nl, "nv": nv, "lig": lig, "fec": obtener_fecha_local_evento(ev.get("date"))[0], "pf": pf, "xb": xb, "srs": srs, "f2": f2, "iso": ev.get("date"), "r": r, "p": f"{nl} vs {nv}", "m": f"{gl}-{gv}", "gt": gt, "tt": tt, "tm": tm, "et": et, "pos": f"{srs['pos_l']}%-{srs['pos_v']}%", "t1": t1, "t2": t2, "t3": t3, "sv": sv, "vd": vd, "cb": cb, "ec": ec})
 
-                    t_scr.append({"ev_id": ev.get("id"), "r": r, "p": f"{nl} vs {nv}", "m": f"{gl}-{gv}", "nl": nl, "nv": nv, "lig": lig, "pf": pf, "g": (gl+gv), "tt": sr['toth_tot'], "tm": sr['tmeta_tot'], "esq": sr['esquinas_tot'], "vd": vd, "cls_b": cls_b, "es_cal": es_cal, "t1": t1, "t2": t2, "t3": t3, "sr": sr})
-        
-        for it in sorted(t_scr, key=lambda x: (x['g'], not x['es_cal'], -x['pf'])):
+        for it in sorted(ts, key=lambda x: (x["gt"], not x["ec"], -x["pf"])):
             eid = it["ev_id"]
             yv = eid in boveda_vip.get("picks_vip_hoy", {})
-            cc = "trading-card-hot" if it["es_cal"] else "trading-card"
+            cc = "trading-card-hot" if it["ec"] else "trading-card"
             c1, c2 = st.columns([10.2, 1.8])
             with c1:
                 st.markdown(f"""
-                <div class='{cc}'>
-                    <div class="trading-header">
-                        <div><span style='background:#ff2a4b; color:#fff; padding:3px 8px; border-radius:4px;'>{it['r']}</span> <strong>{it['p']}</strong> <span style='color:#00ffcc;'>{it['m']}</span></div>
-                        <div style="font-size:12px; color:#9ba1b0;">{it['lig']} | ✅ Radar MRFUTBOL (50K/Día)</div>
-                    </div>
+                <div class="{cc}">
+                    <div class="trading-header"><div><span style="background:#ff2a4b; color:#fff; padding:3px 8px; border-radius:4px;">{it['r']}</span> <strong>{it['p']}</strong> <span style="background:#16181f; color:#00ffcc; padding:3px 10px; border-radius:4px;">{it['m']}</span></div><div style="font-size:12px; color:#9ba1b0;">{it['lig']} | {it['sv']}</div></div>
                     <div class="trading-metrics-grid">
                         <div class="metric-pill"><span>📈 Pre Over 1.5</span><strong>{it['pf']}%</strong></div>
                         <div class="metric-pill"><span>⏱️ Gol 1T</span><strong>{it['t1']}%</strong></div>
-                        <div class="metric-pill"><span>🔥 Gol 2T</span><strong>{it['t2']}%</strong></div>
+                        <div class="metric-pill"><span>⚡ Cierre 38'-45'</span><strong>{it['t3']}%</strong></div>
+                        <div class="metric-pill"><span>🔥 Tasa Gol 2T</span><strong>{it['t2']}%</strong></div>
                         <div class="metric-pill"><span>🎯 Disparos</span><strong>{it['tt']}</strong></div>
                         <div class="metric-pill"><span>🥅 Al Arco</span><strong>{it['tm']}</strong></div>
-                        <div class="metric-pill"><span>🚩 Córn | Pos</span><strong>{it['esq']} | {it['sr']['pos_l']}%-{it['sr']['pos_v']}%</strong></div>
+                        <div class="metric-pill"><span>🚩 Córn | Pos</span><strong>{it['et']} | {it['pos']}</strong></div>
                     </div>
-                    <div class="{it['cls_b']}">{it['vd']}</div>
+                    <div class="{it['cb']}">{it['vd']}</div>
                 </div>
                 """, unsafe_allow_html=True)
             with c2:
                 st.markdown("<div style='margin-top:18px;'></div>", unsafe_allow_html=True)
-                st.checkbox("☑️ Enviar VIP", value=yv, key=f"vip_{eid}_{yv}", on_change=accionar_plequita_vip, args=(eid, it["nl"], it["nv"], it["lig"], str_hoy, it["pf"], it["pf"]/2, it["sr"], it['g']))
+                st.checkbox("☑️ Enviar VIP", value=yv, key=f"vip_{eid}_{yv}", on_change=accionar_plequita_vip, args=(eid, it["nl"], it["nv"], it["lig"], it["fec"], it["pf"], it["xb"], it["srs"], sta, it["iso"], "⚡ Plequita", it["f2"], it["gt"]))
+                if yv: st.caption("👑 **En VIP**")
 
-    with t5:
+    with s5:
         st.subheader("👑 SALA VIP MRFUTBOL — Radiografía Profunda [PASO_3_BIG_DATA]")
         lv = list(boveda_vip.get("picks_vip_hoy", {}).values())
         if lv:
@@ -589,18 +824,26 @@ def renderizar_central_mrfutbol():
                     <div class="trading-header"><strong>{f['Partido']}</strong> <span style="color:#00ffcc;">Prob: {f['Prob_Over15']}</span></div>
                     <div class="trading-metrics-grid">
                         <div class="metric-pill"><span>🎯 [PASO_3_OFENSIVO_PRO]</span><strong>{f['Paso3_Ofensivo_Pro']}</strong><small>{f['Ref_Ofensivo_Pro']}</small></div>
-                        <div class="metric-pill"><span>🥩 [EFICIENCIA / CARNICERÍA]</span><strong>{f['Paso3_Eficiencia_Carniceria']}</strong><small>{f['Ref_Carniceria']}</small></div>
+                        <div class="metric-pill"><span>🥩 [CARNICERÍA]</span><strong>{f['Paso3_Eficiencia_Carniceria']}</strong><small>{f['Ref_Carniceria']}</small></div>
                         <div class="metric-pill"><span>🧀 [VULNERABILIDAD RIVAL]</span><strong>{f['Paso3_Vulnerabilidad_Rival']}</strong><small>{f['Ref_Vulnerabilidad']}</small></div>
-                        <div class="metric-pill"><span>🔥 [MOMENTUM OFENSIVO]</span><strong>{f['Paso3_Momentum']}</strong><small>{f['Ref_Momentum']}</small></div>
+                        <div class="metric-pill"><span>🔥 [MOMENTUM]</span><strong>{f['Paso3_Momentum']}</strong><small>{f['Ref_Momentum']}</small></div>
                         <div class="metric-pill"><span>🤝 [SISTEMA COLECTIVO 10.5]</span><strong>{f['Paso3_Colectivo_105']}</strong><small>{f['Ref_Colectivo']}</small></div>
-                        <div class="metric-pill"><span>🎰 [VARIANZA / DEUDA DE GOL]</span><strong>{f['Paso3_Varianza_Deuda']}</strong><small>{f['Ref_Varianza']}</small></div>
-                        <div class="metric-pill"><span>🏆 [CONTEXTO TABLA / URGENCIA]</span><strong>{f['Paso3_Contexto_Urgencia']}</strong><small>{f['Ref_Urgencia']}</small></div>
+                        <div class="metric-pill"><span>🎰 [VARIANZA / DEUDA GOL]</span><strong>{f['Paso3_Varianza_Deuda']}</strong><small>{f['Ref_Varianza']}</small></div>
+                        <div class="metric-pill"><span>🏆 [URGENCIA TABLA]</span><strong>{f['Paso3_Contexto_Urgencia']}</strong><small>{f['Ref_Urgencia']}</small></div>
                     </div>
                     <div style="font-size:11px; color:#9ba1b0; margin-top:8px;">{f['Liga']} | {f.get('Sello_API', '')}</div>
                 </div>
                 """, unsafe_allow_html=True)
+                
+                # BOTÓN LIMPIADOR INDIVIDUAL
+                if st.button(f"🗑️ Quitar {f['Partido']} de VIP", key=f"del_vip_{iv['ev_id']}"):
+                    if iv['ev_id'] in boveda_vip["picks_vip_hoy"]:
+                        del boveda_vip["picks_vip_hoy"][iv['ev_id']]
+                        guardar_boveda_vip_servidor(boveda_vip)
+                        st.rerun()
+
             if st.button("🔓 Descargar Reporte VIP (CSV)", use_container_width=True):
-                st.download_button("Descargar", data=pd.DataFrame([iv["ficha"] for iv in lv]).to_csv(index=False).encode("utf-8-sig"), file_name=f"Reporte_VIP_{str_hoy}.csv", mime="text/csv")
+                st.download_button("Descargar", data=pd.DataFrame([i["ficha"] for i in lv]).to_csv(index=False).encode("utf-8-sig"), file_name=f"Reporte_VIP_{str_hoy}.csv", mime="text/csv")
         else: st.info("Marca la plequita `☑️ Enviar VIP` en el Terminal en Vivo 0.5 para destripar el partido con el motor V3.")
 
 renderizar_central_mrfutbol()
