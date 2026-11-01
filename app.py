@@ -6,6 +6,7 @@ import unicodedata
 import json
 import os
 import re
+import time
 from difflib import SequenceMatcher
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
@@ -553,9 +554,9 @@ def _fetch_statpal_league_stats(args):
         pass
     return lid, {}
 
-@st.cache_data(ttl=20)
-def obtener_mapa_stats_en_vivo_statpal(league_ids_activos):
-    """Obtiene en paralelo desde StatPal /soccer/leagues/{id}/matches/stats las métricas reales en vivo y del día."""
+@st.cache_data(ttl=8)
+def obtener_mapa_stats_en_vivo_statpal(league_ids_activos, pulso_vivo=0):
+    """Obtiene en paralelo desde StatPal /soccer/leagues/{id}/matches/stats las métricas reales en vivo cada 8s sin atasco de caché."""
     mapa_stats = {}
     if not league_ids_activos:
         return mapa_stats
@@ -568,9 +569,12 @@ def obtener_mapa_stats_en_vivo_statpal(league_ids_activos):
 def _interpretar_estado_statpal(status_raw, time_raw, date_raw):
     s = str(status_raw or "").strip().upper()
     f_iso, f_corta, h_corta, dt_loc = parsear_fecha_hora_statpal(date_raw, time_raw)
-    if s in ("FT", "FULL-TIME", "AET", "PEN", "FINAL", "ENDED"):
+    ahora_loc = obtener_reloj_mexico()
+    seg_desde_inicio = (ahora_loc - dt_loc).total_seconds()
+
+    if any(k in s for k in ("FT", "FULL-TIME", "AET", "PEN", "FINAL", "ENDED", "FINISH", "AFTER", "AWARD", "WALKOVER")) or s in ("WO", "POSTP", "POSTPONED", "CANC", "CANCELLED", "ABAN", "ABANDONED", "SUSP", "INT"):
         return "post", False, 90, "<div class='status-final'>FINAL</div>", "FINAL", f_iso, h_corta, dt_loc
-    if s in ("HT", "HALF-TIME", "HALFTIME", "PAUSE"):
+    if s in ("HT", "HALF-TIME", "HALFTIME", "PAUSE", "BREAK"):
         return "in", True, 45, "<div class='status-ht'>⏸️ ENTRETIEMPO</div>", "⏸️ HT (45')", f_iso, h_corta, dt_loc
     if s.isdigit():
         mn = int(s)
@@ -579,8 +583,11 @@ def _interpretar_estado_statpal(status_raw, time_raw, date_raw):
     if m_plus:
         mn = int(m_plus.group(1))
         return "in", False, mn, f"<div class='status-live'>🔴 {s}'</div>", f"🔴 {s}'", f_iso, h_corta, dt_loc
-    if s in ("POSTP", "POSTPONED", "CANC", "CANCELLED", "ABAN", "ABANDONED", "SUSP"):
-        return "post", False, 0, f"<div class='status-final'>{s[:5]}</div>", s, f_iso, h_corta, dt_loc
+
+    # Si ya pasaron más de 125 minutos (7500s) desde la hora programada de inicio y no tiene minuto en vivo, ya finalizó
+    if seg_desde_inicio >= 7500:
+        return "post", False, 90, "<div class='status-final'>FINAL</div>", "FINAL", f_iso, h_corta, dt_loc
+
     return "pre", False, 0, f"<div class='status-badge'>🕒 {h_corta}</div>", f_corta, f_iso, h_corta, dt_loc
 
 def _extraer_eventos_gol_partido(m_obj):
@@ -606,13 +613,33 @@ def _extraer_eventos_gol_partido(m_obj):
             goles_info.append({"min": mn, "team": tm, "player": pl})
     return primer_gol_min, scorers_l, scorers_v, assisters_l, assisters_v, goles_info
 
-@st.cache_data(ttl=20)
-def obtener_cartelera_statpal_v2():
+@st.cache_data(ttl=120)
+def _obtener_daily_cacheado_statpal():
+    """Descarga ayer (offset=-1 para auditoría de bitácora) y mañana (offset=1) con caché ligero de 120s."""
+    def _fetch_daily(off):
+        try:
+            rd = requests.get(f"{_STATPAL_BASE_V2}/matches/daily", params={"access_key": _STATPAL_KEY, "offset": off}, timeout=7)
+            if rd.status_code == 200:
+                jd = rd.json()
+                for k, v in jd.items():
+                    if k.startswith("matches_") and isinstance(v, dict):
+                        return v.get("league")
+        except Exception:
+            pass
+        return []
+
+    out = []
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        for lgs in ex.map(_fetch_daily, [-1, 1]):
+            if lgs:
+                out.append(lgs)
+    return out
+
+@st.cache_data(ttl=8)
+def obtener_cartelera_statpal_v2(pulso_vivo=0):
     """
-    Descarga de StatPal v2:
-    1) /soccer/matches/live (todos los partidos en vivo y del día de hoy)
-    2) /soccer/matches/daily?offset=1 (partidos de mañana)
-    3) /soccer/matches/daily?offset=-1 (partidos de ayer para cruce de zona horaria UTC-6)
+    Descarga en tiempo real (cada 8 segundos vía pulso_vivo) /soccer/matches/live
+    y lo fusiona con /soccer/matches/daily (mañana/ayer) dando prioridad absoluta al estado en vivo.
     """
     coleccion = {l["id"]: {"meta": l, "eventos": []} for l in LIGAS_BIG_DATA}
     vistos = set()
@@ -684,30 +711,17 @@ def obtener_cartelera_statpal_v2():
                     "goles_ev": goles_ev
                 })
 
-    # 1. Live / Hoy
+    # 1. Primero /matches/live en tiempo real (tiene prioridad sobre cualquier caché diario)
     try:
-        r_live = requests.get(f"{_STATPAL_BASE_V2}/matches/live", params={"access_key": _STATPAL_KEY}, timeout=7)
+        r_live = requests.get(f"{_STATPAL_BASE_V2}/matches/live", params={"access_key": _STATPAL_KEY}, timeout=6)
         if r_live.status_code == 200:
             _procesar_payload_ligas((r_live.json().get("live_matches") or {}).get("league"))
     except Exception:
         pass
 
-    # 2. Ayer (offset=-1) y Mañana (offset=1) en paralelo
-    def _fetch_daily(off):
-        try:
-            rd = requests.get(f"{_STATPAL_BASE_V2}/matches/daily", params={"access_key": _STATPAL_KEY, "offset": off}, timeout=7)
-            if rd.status_code == 200:
-                jd = rd.json()
-                for k, v in jd.items():
-                    if k.startswith("matches_") and isinstance(v, dict):
-                        return v.get("league")
-        except Exception:
-            pass
-        return []
-
-    with ThreadPoolExecutor(max_workers=2) as ex:
-        for lgs in ex.map(_fetch_daily, [-1, 1]):
-            _procesar_payload_ligas(lgs)
+    # 2. Complementar con Mañana y Ayer desde caché ligero
+    for lgs in _obtener_daily_cacheado_statpal():
+        _procesar_payload_ligas(lgs)
 
     return coleccion, list(ligas_con_actividad)
 
@@ -1995,12 +2009,10 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 def renderizar_central_mrfutbol():
-    ahora_mx = obtener_reloj_mexico()
-    sh = ahora_mx.strftime("%Y-%m-%d")
-    sa = (ahora_mx - timedelta(days=1)).strftime("%Y-%m-%d")
-    sm = (ahora_mx + timedelta(days=1)).strftime("%Y-%m-%d")
+    ahora_mx_init = obtener_reloj_mexico()
+    sh_init = ahora_mx_init.strftime("%Y-%m-%d")
 
-    # Barra Lateral: Estado de API StatPal, Corazón de Bitácora y Respaldo Permanente
+    # Barra Lateral: Estado de API StatPal, Auto-Refresco en Oculto, Corazón de Bitácora y Respaldo
     with st.sidebar:
         st.markdown("### ⚡ MOTOR STATPAL API v2")
         uso_sp = consultar_uso_real_statpal()
@@ -2012,16 +2024,23 @@ def renderizar_central_mrfutbol():
             st.warning("🟡 Reconectando con StatPal v2...")
 
         st.markdown("---")
+        st.markdown("### 🔄 REFRESCO EN OCULTO (LIVE)")
+        auto_refresco_oculto = st.toggle(
+            "⚡ Auto-Refresco Tiempo Real (Cada 10s en oculto)",
+            value=True,
+            help="Actualiza marcadores, minutos, tiros, xG y termómetro 0.5 automáticamente en segundo plano cada 10 segundos sin recargar la página completa."
+        )
+        if st.button("🔄 Forzar Sincronización Inmediata", use_container_width=True, type="primary"):
+            st.cache_data.clear()
+            st.rerun()
+
+        st.markdown("---")
         st.markdown("### 🧠 CORAZÓN DE LA BITÁCORA")
         st.caption("La Bitácora recopila datos reales de StatPal y **nunca se borra**. Mide el estándar de xG y tiros de cada liga contra los últimos 2 partidos sin promedios.")
         c_b1, c_b2 = st.columns(2)
         c_b1.metric("Partidos Auditados", f"{len(bitacora_partidos_statpal):,}")
         c_b2.metric("Clubes en Matriz", f"{len(matriz_clubes_global):,}")
         st.metric("Bitácora En Vivo 0.5", f"{len(boveda_ml_05):,} registros")
-
-        if st.button("🔄 Actualizar Datos En Vivo y Bitácora", use_container_width=True, type="primary"):
-            st.cache_data.clear()
-            st.rerun()
 
         with st.expander("🛡️ Respaldo Eterno (Exportar / Restaurar Bitácora)"):
             paquete_respaldo = json.dumps({
@@ -2033,7 +2052,7 @@ def renderizar_central_mrfutbol():
             st.download_button(
                 "💾 Descargar Bitácora Completa (.JSON)",
                 data=paquete_respaldo.encode("utf-8"),
-                file_name=f"corazon_bitacora_mrfutbol_{sh}.json",
+                file_name=f"corazon_bitacora_mrfutbol_{sh_init}.json",
                 mime="application/json",
                 use_container_width=True
             )
@@ -2057,39 +2076,12 @@ def renderizar_central_mrfutbol():
                 except Exception as e_rest:
                     st.error(f"Error al leer archivo: {e_rest}")
 
-    # Encabezado Principal con ancla #creado-por-miguel-ramirez
-    st.markdown(f"""
-    <div class="mrf-header" id="creado-por-miguel-ramirez">
-        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;">
-            <div>
-                <h2 style="margin:0;color:#f8fafc;font-size:24px;">⚽ MRFUTBOL BIG DATA — CENTRAL DE INTELIGENCIA STATPAL v2</h2>
-                <div style="color:#94a3b8;font-size:13.5px;margin-top:4px;">
-                    <b>Creado por Miguel Ramírez</b> | Corazón de Bitácora Permanente • Comparativa Cruda 2 Partidos (Sin Promedios) • Terminal En Vivo Over 0.5
-                </div>
-            </div>
-            <div style="text-align:right;">
-                <span class="mrf-pill" style="background:#052e16;color:#4ade80;border:1px solid #22c55e;">🕒 Hora CDMX: {ahora_mx.strftime('%H:%M')} ({sh})</span>
-                <span class="mrf-pill" style="background:#0f172a;color:#38bdf8;border:1px solid #0284c7;">📡 20 Ligas Oficiales Big Data</span>
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # Carga de Cartelera, Estadísticas en Vivo, Tablas y Sincronización del Corazón de la Bitácora
-    with st.spinner("Sincronizando Cartelera, Estadísticas Ópticas y Corazón de la Bitácora desde StatPal API v2..."):
-        cartelera, ligas_activas = obtener_cartelera_statpal_v2()
-        lids_para_stats = tuple(sorted(set(ligas_activas if ligas_activas else [l["statpal_id"] for l in LIGAS_BIG_DATA[:10]])))
-        mapa_stats_vivo = obtener_mapa_stats_en_vivo_statpal(lids_para_stats)
-        sta_dict, efec_ligas_real = obtener_standings_todas_ligas_statpal()
-        sincronizar_bitacora_corazon_statpal(cartelera, mapa_stats_vivo)
-        estandares_ligas = calcular_estandares_reales_ligas_bitacora()
-
-    # Selector Global de Día Operativo
+    # Controles Globales de Jornada y Filtro (fuera del fragmento para conservar selección sin parpadeo)
     col_d1, col_d2, col_d3 = st.columns([2, 2, 2])
     with col_d1:
         modo_dia = st.radio(
-            "📅 Jornada Operativa:",
-            options=["Hoy", "Ayer", "Mañana", "Todas (Ayer + Hoy + Mañana)"],
+            "📅 Jornada Operativa (Solo Vigentes):",
+            options=["Hoy", "Mañana", "Hoy + Mañana"],
             index=0,
             horizontal=True
         )
@@ -2099,543 +2091,622 @@ def renderizar_central_mrfutbol():
     with col_d3:
         busqueda_eq = st.text_input("🔍 Buscar Club o Partido:", placeholder="Ej. Bayern, Arsenal, PSV, Barcelona...").strip()
 
-    fechas_permitidas = {sh} if modo_dia == "Hoy" else ({sa} if modo_dia == "Ayer" else ({sm} if modo_dia == "Mañana" else {sa, sh, sm}))
+    def _cuerpo_operativo_tiempo_real():
+        ahora_mx = obtener_reloj_mexico()
+        sh = ahora_mx.strftime("%Y-%m-%d")
+        sm = (ahora_mx + timedelta(days=1)).strftime("%Y-%m-%d")
+        pulso_vivo = int(time.time() // 8)
 
-    # Aplanar todos los eventos y evaluar en vivo + pre-apuesta
-    todos_eventos = []
-    eventos_filtrados = []
-    for nombre_liga, cont in cartelera.items():
-        for ev in cont.get("eventos", []):
-            todos_eventos.append(ev)
-            if ev.get("fecha_iso") not in fechas_permitidas and ev.get("state") != "in":
-                continue
-            if liga_filtro != "🌎 TODAS LAS 20 LIGAS BIG DATA" and ev.get("liga_ui") != liga_filtro:
-                continue
-            if busqueda_eq and (busqueda_eq.lower() not in ev["local"].lower() and busqueda_eq.lower() not in ev["visita"].lower()):
-                continue
-            eventos_filtrados.append(ev)
+        # Encabezado Principal con reloj en segundos para verificar refresco en oculto
+        st.markdown(f"""
+        <div class="mrf-header" id="creado-por-miguel-ramirez">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;">
+                <div>
+                    <h2 style="margin:0;color:#f8fafc;font-size:24px;">⚽ MRFUTBOL BIG DATA — CENTRAL DE INTELIGENCIA STATPAL v2</h2>
+                    <div style="color:#94a3b8;font-size:13.5px;margin-top:4px;">
+                        <b>Creado por Miguel Ramírez</b> | Corazón de Bitácora Permanente • Comparativa Cruda 2 Partidos (Sin Promedios) • Terminal En Vivo Over 0.5
+                    </div>
+                </div>
+                <div style="text-align:right;">
+                    <span class="mrf-pill" style="background:#052e16;color:#4ade80;border:1px solid #22c55e;">⚡ Pulso En Vivo: {ahora_mx.strftime('%H:%M:%S')} ({sh})</span>
+                    <span class="mrf-pill" style="background:#0f172a;color:#38bdf8;border:1px solid #0284c7;">📡 Auto-Sync Oculto 10s Activo</span>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
-    # Pre-evaluar partidos en vivo para alimentar automáticamente la Bitácora En Vivo 0.5
-    partidos_vivo_evaluados = []
-    for ev in todos_eventos:
-        if ev.get("state") == "in":
-            mid = str(ev.get("id", ""))
-            st_m = (mapa_stats_vivo.get(mid) or {}).get("stats") or {}
-            eval_pre = evaluar_partido_big_data_completo(ev["local"], ev["visita"], ev["league_id"], sta_dict, estandares_ligas)
-            dl = int(st_m.get("toth_l", 0))
-            dv = int(st_m.get("toth_v", 0))
-            al = int(st_m.get("tmeta_l", 0))
-            av = int(st_m.get("tmeta_v", 0))
-            arl = int(st_m.get("area_l", 0))
-            arv = int(st_m.get("area_v", 0))
-            cl = int(st_m.get("esquinas_l", 0))
-            cv = int(st_m.get("esquinas_v", 0))
-            xgl = float(st_m.get("xg_l", 0.0))
-            xgv = float(st_m.get("xg_v", 0.0))
-            tt = dl + dv
-            tm = al + av
-            md = max(dl, dv)
-            area_tot = arl + arv
-            xg_vivo = round(xgl + xgv, 2)
-            t1, t2, t38 = calcular_tasas_tiempos_y_franja(eval_pre["xg_final"], tt, tm, cl + cv, ev["minuto"])
-            prox_pct, gat_ok, det_filtro, meta_d, meta_a = calcular_termometro_proximidad_05(
-                eval_pre["prob_o15"], tt, md, tm, xg_vivo, area_tot, ev["minuto"], ev["is_ht"], t38
-            )
-            res_2j_corto = (
-                f"L(J1:{eval_pre['comp_l']['j1']['xg_f']:.2f}xG/{eval_pre['comp_l']['j1']['sot_f']}SoT) | "
-                f"V(J1:{eval_pre['comp_v']['j1']['xg_f']:.2f}xG/{eval_pre['comp_v']['j1']['sot_f']}SoT)"
-            )
-            partidos_vivo_evaluados.append({
-                "ev": ev, "st_m": st_m, "eval_pre": eval_pre,
-                "dl": dl, "dv": dv, "al": al, "av": av, "arl": arl, "arv": arv,
-                "cl": cl, "cv": cv, "xgl": xgl, "xgv": xgv,
-                "tt": tt, "tm": tm, "md": md, "area_tot": area_tot, "xg_vivo": xg_vivo,
-                "t1": t1, "t2": t2, "t38": t38,
-                "prox_pct": prox_pct, "gatillo_ok": (gat_ok and (ev["gol_l"] + ev["gol_v"] == 0)),
-                "detalle_filtro": det_filtro, "meta_disp": meta_d, "meta_arco": meta_a,
-                "prob_pre": eval_pre["prob_o15"],
-                "resumen_2j_corto": res_2j_corto
-            })
+        cartelera, ligas_activas = obtener_cartelera_statpal_v2(pulso_vivo)
+        lids_para_stats = tuple(sorted(set(ligas_activas if ligas_activas else [l["statpal_id"] for l in LIGAS_BIG_DATA[:10]])))
+        mapa_stats_vivo = obtener_mapa_stats_en_vivo_statpal(lids_para_stats, pulso_vivo)
+        sta_dict, efec_ligas_real = obtener_standings_todas_ligas_statpal()
+        sincronizar_bitacora_corazon_statpal(cartelera, mapa_stats_vivo)
+        estandares_ligas = calcular_estandares_reales_ligas_bitacora()
 
-    # Auditar y registrar automáticamente en la Bitácora Permanente 0.5
-    auditar_y_registrar_bitacora_en_vivo_05(partidos_vivo_evaluados, todos_eventos)
+        fechas_permitidas = {sh} if modo_dia == "Hoy" else ({sm} if modo_dia == "Mañana" else {sh, sm})
 
-    # =========================================================================
-    # PESTAÑAS PRINCIPALES DEL SISTEMA
-    # =========================================================================
-    picks_vip_dict = boveda_vip.setdefault("picks_vip_hoy", {}) if isinstance(boveda_vip, dict) else {}
+        # Separación estricta:
+        # 1) todos_eventos: incluye finalizados SOLO para auditar en silencio la Bitácora 0.5 y Matriz
+        # 2) eventos_cartelera_vigentes: SOLO partidos NO finalizados (pre + in) para Cartelera y Auditoría Profunda
+        # 3) eventos_pre_apuestas: EXCLUSIVAMENTE partidos NO iniciados y NO finalizados (state == 'pre') para Pre-Apuestas
+        todos_eventos = []
+        eventos_cartelera_vigentes = []
+        eventos_pre_apuestas = []
+        ids_finalizados_o_jugados = set()
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📅 1. CARTELERA + CORAZÓN BITÁCORA",
-        f"🔴 2. PARTIDOS EN VIVO ({len(partidos_vivo_evaluados)})",
-        "📈 3. PRE-APUESTAS BIG DATA (6 PASOS)",
-        "⚡ 4. TERMINAL EN VIVO 0.5 + TERMÓMETRO",
-        f"💎 5. AUDITORÍA PROFUNDA + SALA VIP ({len(picks_vip_dict)})"
-    ])
+        for nombre_liga, cont in cartelera.items():
+            for ev in cont.get("eventos", []):
+                todos_eventos.append(ev)
+                mid_ev = str(ev.get("id", ""))
+                st_ev = ev.get("state", "pre")
+                seg_desde_arranque = (ahora_mx - ev["dt_local"]).total_seconds()
 
-    # -------------------------------------------------------------------------
-    # PESTAÑA 1: CARTELERA + CORAZÓN DE LA BITÁCORA (ESTÁNDARES Y 2J SIN PROMEDIOS)
-    # -------------------------------------------------------------------------
-    with tab1:
-        st.markdown("#### 🧠 Corazón de Recopilación de Datos: Estándares Reales por Liga vs Últimos 2 Partidos (Sin Promedios)")
-        with st.expander("📊 Ver Estándares Reales de xG y Tiros de las 20 Ligas medidos por la Bitácora", expanded=False):
-            filas_std = []
-            for idx_l, l_meta in enumerate(LIGAS_BIG_DATA, 1):
-                lid = l_meta["statpal_id"]
-                st_l = estandares_ligas.get(lid, {})
-                cat_l = "🔥 Élite Top (86-91%)" if l_meta["efec"] >= 86.0 else ("⚡ Alta Confianza (81-85%)" if l_meta["efec"] >= 81.0 else "🛡️ Estándar Pro (79-80%)")
-                filas_std.append({
-                    "Ranking": f"#{l_meta.get('rank', idx_l):02d}",
-                    "Liga": l_meta["id"],
-                    "Categoría": l_meta.get("cat", cat_l),
-                    "Muestra Bitácora": f"{st_l.get('muestra_partidos', 0)} PJ",
-                    "xG Estándar / Partido": st_l.get("xg_partido_std", l_meta["xg_std"]),
-                    "xG Estándar / Equipo": st_l.get("xg_equipo_std", round(l_meta["xg_std"] / 2, 2)),
-                    "Tiros al Arco Std / Eq": st_l.get("sot_equipo_std", l_meta["sot_std"]),
-                    "Disparos Totales Std / Eq": st_l.get("disp_equipo_std", l_meta["disp_std"]),
-                    "% Over 1.5 Efectividad": f"{st_l.get('efec_combinada', l_meta['efec']):.1f}%"
-                })
-            st.dataframe(pd.DataFrame(filas_std), use_container_width=True, hide_index=True)
+                # Si ya finalizó (post) o su fecha es anterior a hoy y no está en vivo, registrar como finalizado
+                if st_ev == "post" or (ev.get("fecha_iso", "") < sh and st_ev != "in") or (st_ev != "in" and seg_desde_arranque >= 7500):
+                    ids_finalizados_o_jugados.add(mid_ev)
+                    continue
 
-        st.markdown(f"#### 📅 Cartelera Oficial StatPal v2 ({modo_dia}) — {len(eventos_filtrados)} Partidos Encontrados")
-        if not eventos_filtrados:
-            st.info("No hay partidos programados con el filtro actual. Prueba cambiando 'Jornada Operativa' a 'Todas (Ayer + Hoy + Mañana)'.")
-        else:
-            # Agrupar por liga
-            por_liga_ui = {}
-            for ev in eventos_filtrados:
-                por_liga_ui.setdefault(ev["liga_ui"], []).append(ev)
+                if ev.get("fecha_iso") not in fechas_permitidas and st_ev != "in":
+                    continue
+                if liga_filtro != "🌎 TODAS LAS 20 LIGAS BIG DATA" and ev.get("liga_ui") != liga_filtro:
+                    continue
+                if busqueda_eq and (busqueda_eq.lower() not in ev["local"].lower() and busqueda_eq.lower() not in ev["visita"].lower()):
+                    continue
 
-            for nom_l, lista_ev in por_liga_ui.items():
-                lid_actual = lista_ev[0]["league_id"]
-                std_actual = estandares_ligas.get(str(lid_actual), {})
-                st.markdown(
-                    f"**{nom_l}** — <small style='color:#38bdf8;'>Estándar Liga en Bitácora: "
-                    f"<b>{std_actual.get('xg_partido_std', 2.60):.2f} xG/Partido</b> ({std_actual.get('xg_equipo_std', 1.30):.2f} xG/Eq) | "
-                    f"<b>{std_actual.get('sot_equipo_std', 5.2):.1f} Tiros al Arco/Eq</b> | "
-                    f"Efectividad Over 1.5: <b>{std_actual.get('efec_combinada', 80.0):.1f}%</b></small>",
-                    unsafe_allow_html=True
+                # Vigente para Cartelera (En Vivo + Por Jugar; NUNCA finalizados)
+                eventos_cartelera_vigentes.append(ev)
+
+                # Vigente para Pre-Apuestas (EXCLUSIVAMENTE antes de empezar: state == 'pre' y no arrancado)
+                if st_ev == "pre" and seg_desde_arranque < 300:
+                    eventos_pre_apuestas.append(ev)
+
+        # Pre-evaluar partidos en vivo para alimentar automáticamente la Bitácora En Vivo 0.5
+        partidos_vivo_evaluados = []
+        for ev in todos_eventos:
+            if ev.get("state") == "in":
+                mid = str(ev.get("id", ""))
+                st_m = (mapa_stats_vivo.get(mid) or {}).get("stats") or {}
+                eval_pre = evaluar_partido_big_data_completo(ev["local"], ev["visita"], ev["league_id"], sta_dict, estandares_ligas)
+                dl = int(st_m.get("toth_l", 0))
+                dv = int(st_m.get("toth_v", 0))
+                al = int(st_m.get("tmeta_l", 0))
+                av = int(st_m.get("tmeta_v", 0))
+                arl = int(st_m.get("area_l", 0))
+                arv = int(st_m.get("area_v", 0))
+                cl = int(st_m.get("esquinas_l", 0))
+                cv = int(st_m.get("esquinas_v", 0))
+                xgl = float(st_m.get("xg_l", 0.0))
+                xgv = float(st_m.get("xg_v", 0.0))
+                tt = dl + dv
+                tm = al + av
+                md = max(dl, dv)
+                area_tot = arl + arv
+                xg_vivo = round(xgl + xgv, 2)
+                t1, t2, t38 = calcular_tasas_tiempos_y_franja(eval_pre["xg_final"], tt, tm, cl + cv, ev["minuto"])
+                prox_pct, gat_ok, det_filtro, meta_d, meta_a = calcular_termometro_proximidad_05(
+                    eval_pre["prob_o15"], tt, md, tm, xg_vivo, area_tot, ev["minuto"], ev["is_ht"], t38
                 )
-                for ev in sorted(lista_ev, key=lambda x: x["hora_local"]):
-                    comp_l = obtener_ultimos_2_partidos_crudos_bitacora(ev["local"], ev["league_id"], estandares_ligas)
-                    comp_v = obtener_ultimos_2_partidos_crudos_bitacora(ev["visita"], ev["league_id"], estandares_ligas)
-                    marc_txt = f"{ev['gol_l']} - {ev['gol_v']}" if ev["state"] in ("in", "post") else "vs"
-                    st.markdown(f"""
-                    <div class="mrf-card">
-                        <div style="display:flex;justify-content:space-between;align-items:center;">
-                            <div>
-                                {ev['badge_html']} <b style="font-size:15.5px;color:#f8fafc;margin-left:8px;">{ev['local']} <span style="color:#22c55e;">{marc_txt}</span> {ev['visita']}</b>
-                                <span style="color:#94a3b8;font-size:12px;margin-left:8px;">({ev['fecha_iso']} • {ev['reloj_txt']})</span>
+                res_2j_corto = (
+                    f"L(J1:{eval_pre['comp_l']['j1']['xg_f']:.2f}xG/{eval_pre['comp_l']['j1']['sot_f']}SoT) | "
+                    f"V(J1:{eval_pre['comp_v']['j1']['xg_f']:.2f}xG/{eval_pre['comp_v']['j1']['sot_f']}SoT)"
+                )
+                partidos_vivo_evaluados.append({
+                    "ev": ev, "st_m": st_m, "eval_pre": eval_pre,
+                    "dl": dl, "dv": dv, "al": al, "av": av, "arl": arl, "arv": arv,
+                    "cl": cl, "cv": cv, "xgl": xgl, "xgv": xgv,
+                    "tt": tt, "tm": tm, "md": md, "area_tot": area_tot, "xg_vivo": xg_vivo,
+                    "t1": t1, "t2": t2, "t38": t38,
+                    "prox_pct": prox_pct, "gatillo_ok": (gat_ok and (ev["gol_l"] + ev["gol_v"] == 0)),
+                    "detalle_filtro": det_filtro, "meta_disp": meta_d, "meta_arco": meta_a,
+                    "prob_pre": eval_pre["prob_o15"],
+                    "resumen_2j_corto": res_2j_corto
+                })
+
+        # Auditar y registrar automáticamente en la Bitácora Permanente 0.5
+        auditar_y_registrar_bitacora_en_vivo_05(partidos_vivo_evaluados, todos_eventos)
+
+        # Depurar automáticamente de la Sala VIP cualquier partido que ya haya finalizado o cuya fecha/hora ya pasó
+        picks_vip_dict = boveda_vip.setdefault("picks_vip_hoy", {}) if isinstance(boveda_vip, dict) else {}
+        mapa_todos_por_id = {str(e.get("id", "")): e for e in todos_eventos if e.get("id")}
+        vip_modificado = False
+        for vid in list(picks_vip_dict.keys()):
+            v_item = picks_vip_dict[vid]
+            ev_ref = mapa_todos_por_id.get(str(vid))
+            f_vip = str(v_item.get("Fecha", ""))
+            if (
+                str(vid) in ids_finalizados_o_jugados
+                or (ev_ref and ev_ref.get("state") == "post")
+                or (f_vip and f_vip < sh)
+            ):
+                del picks_vip_dict[vid]
+                vip_modificado = True
+        if vip_modificado:
+            guardar_vip_servidor(boveda_vip)
+
+        # =====================================================================
+        # PESTAÑAS PRINCIPALES DEL SISTEMA
+        # =====================================================================
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+            f"📅 1. CARTELERA VIGENTE ({len(eventos_cartelera_vigentes)})",
+            f"🔴 2. PARTIDOS EN VIVO ({len(partidos_vivo_evaluados)})",
+            f"📈 3. PRE-APUESTAS BIG DATA ({len(eventos_pre_apuestas)})",
+            "⚡ 4. TERMINAL EN VIVO 0.5 + TERMÓMETRO",
+            f"💎 5. AUDITORÍA PROFUNDA + SALA VIP ({len(picks_vip_dict)})"
+        ])
+
+        # ---------------------------------------------------------------------
+        # PESTAÑA 1: CARTELERA VIGENTE (SIN PARTIDOS FINALIZADOS)
+        # ---------------------------------------------------------------------
+        with tab1:
+            st.markdown("#### 🧠 Corazón de Recopilación de Datos: Estándares Reales por Liga vs Últimos 2 Partidos (Sin Promedios)")
+            with st.expander("📊 Ver Estándares Reales de xG y Tiros de las 20 Ligas medidos por la Bitácora", expanded=False):
+                filas_std = []
+                for idx_l, l_meta in enumerate(LIGAS_BIG_DATA, 1):
+                    lid = l_meta["statpal_id"]
+                    st_l = estandares_ligas.get(lid, {})
+                    cat_l = "🔥 Élite Top (86-91%)" if l_meta["efec"] >= 86.0 else ("⚡ Alta Confianza (81-85%)" if l_meta["efec"] >= 81.0 else "🛡️ Estándar Pro (79-80%)")
+                    filas_std.append({
+                        "Ranking": f"#{l_meta.get('rank', idx_l):02d}",
+                        "Liga": l_meta["id"],
+                        "Categoría": l_meta.get("cat", cat_l),
+                        "Muestra Bitácora": f"{st_l.get('muestra_partidos', 0)} PJ",
+                        "xG Estándar / Partido": st_l.get("xg_partido_std", l_meta["xg_std"]),
+                        "xG Estándar / Equipo": st_l.get("xg_equipo_std", round(l_meta["xg_std"] / 2, 2)),
+                        "Tiros al Arco Std / Eq": st_l.get("sot_equipo_std", l_meta["sot_std"]),
+                        "Disparos Totales Std / Eq": st_l.get("disp_equipo_std", l_meta["disp_std"]),
+                        "% Over 1.5 Efectividad": f"{st_l.get('efec_combinada', l_meta['efec']):.1f}%"
+                    })
+                st.dataframe(pd.DataFrame(filas_std), use_container_width=True, hide_index=True)
+
+            st.markdown(f"#### 📅 Cartelera Activa StatPal v2 ({modo_dia}) — {len(eventos_cartelera_vigentes)} Partidos Por Jugar / En Vivo *(Los finalizados se ocultan automáticamente)*")
+            if not eventos_cartelera_vigentes:
+                st.info("Todos los partidos de hoy en este filtro ya concluyeron. Cambia 'Jornada Operativa' a 'Mañana' o 'Hoy + Mañana' para ver los próximos encuentros.")
+            else:
+                por_liga_ui = {}
+                for ev in eventos_cartelera_vigentes:
+                    por_liga_ui.setdefault(ev["liga_ui"], []).append(ev)
+
+                for nom_l, lista_ev in por_liga_ui.items():
+                    lid_actual = lista_ev[0]["league_id"]
+                    std_actual = estandares_ligas.get(str(lid_actual), {})
+                    st.markdown(
+                        f"**{nom_l}** — <small style='color:#38bdf8;'>Estándar Liga en Bitácora: "
+                        f"<b>{std_actual.get('xg_partido_std', 2.60):.2f} xG/Partido</b> ({std_actual.get('xg_equipo_std', 1.30):.2f} xG/Eq) | "
+                        f"<b>{std_actual.get('sot_equipo_std', 5.2):.1f} Tiros al Arco/Eq</b> | "
+                        f"Efectividad Over 1.5: <b>{std_actual.get('efec_combinada', 80.0):.1f}%</b></small>",
+                        unsafe_allow_html=True
+                    )
+                    for ev in sorted(lista_ev, key=lambda x: x["hora_local"]):
+                        comp_l = obtener_ultimos_2_partidos_crudos_bitacora(ev["local"], ev["league_id"], estandares_ligas)
+                        comp_v = obtener_ultimos_2_partidos_crudos_bitacora(ev["visita"], ev["league_id"], estandares_ligas)
+                        marc_txt = f"{ev['gol_l']} - {ev['gol_v']}" if ev["state"] == "in" else "vs"
+                        st.markdown(f"""
+                        <div class="mrf-card">
+                            <div style="display:flex;justify-content:space-between;align-items:center;">
+                                <div>
+                                    {ev['badge_html']} <b style="font-size:15.5px;color:#f8fafc;margin-left:8px;">{ev['local']} <span style="color:#22c55e;">{marc_txt}</span> {ev['visita']}</b>
+                                    <span style="color:#94a3b8;font-size:12px;margin-left:8px;">({ev['fecha_iso']} • {ev['reloj_txt']})</span>
+                                </div>
+                                <div>
+                                    <span class="mrf-pill" style="background:#1e293b;color:#cbd5e1;">Std Liga: {std_actual.get('xg_equipo_std',1.3):.2f} xG / {std_actual.get('sot_equipo_std',5.0):.1f} SoT</span>
+                                </div>
                             </div>
-                            <div>
-                                <span class="mrf-pill" style="background:#1e293b;color:#cbd5e1;">Std Liga: {std_actual.get('xg_equipo_std',1.3):.2f} xG / {std_actual.get('sot_equipo_std',5.0):.1f} SoT</span>
+                            <div style="margin-top:8px;font-size:12.5px;color:#cbd5e1;background:#070b14;padding:8px 12px;border-radius:8px;border-left:3px solid #38bdf8;">
+                                <div>🏠 <b>{ev['local']} (Últimos 2 Juegos SIN Promedios):</b> {comp_l['texto_comparativo']}</div>
+                                <div style="margin-top:4px;">✈️ <b>{ev['visita']} (Últimos 2 Juegos SIN Promedios):</b> {comp_v['texto_comparativo']}</div>
                             </div>
                         </div>
-                        <div style="margin-top:8px;font-size:12.5px;color:#cbd5e1;background:#070b14;padding:8px 12px;border-radius:8px;border-left:3px solid #38bdf8;">
-                            <div>🏠 <b>{ev['local']} (Últimos 2 Juegos SIN Promedios):</b> {comp_l['texto_comparativo']}</div>
-                            <div style="margin-top:4px;">✈️ <b>{ev['visita']} (Últimos 2 Juegos SIN Promedios):</b> {comp_v['texto_comparativo']}</div>
+                        """, unsafe_allow_html=True)
+
+        # ---------------------------------------------------------------------
+        # PESTAÑA 2: PARTIDOS EN VIVO (ESTADÍSTICAS REALES STATPAL)
+        # ---------------------------------------------------------------------
+        with tab2:
+            st.markdown("#### 🔴 Monitor de Partidos en Vivo con Estadísticas Reales StatPal v2 *(Sincronización en oculto cada 10s)*")
+            if not partidos_vivo_evaluados:
+                st.info("En este instante no hay partidos en juego ('in-play') dentro de las 20 ligas seleccionadas. Revisa la Pestaña 3 para Pre-Apuestas o la Pestaña 4 para la Bitácora 0.5.")
+            else:
+                for item in partidos_vivo_evaluados:
+                    ev = item["ev"]
+                    st.markdown(f"""
+                    <div class="mrf-card-elite">
+                        <div style="display:flex;justify-content:space-between;align-items:center;">
+                            <div>
+                                {ev['badge_html']} <b style="font-size:17px;color:#ffffff;margin-left:8px;">{ev['local']} <span style="color:#4ade80;">{ev['gol_l']} - {ev['gol_v']}</span> {ev['visita']}</b>
+                                <span style="color:#cbd5e1;font-size:12.5px;margin-left:8px;">• {ev['liga_ui']}</span>
+                            </div>
+                            <div>
+                                <span class="mrf-pill" style="background:#0284c7;color:#fff;">xG Vivo: {item['xgl']:.2f} - {item['xgv']:.2f} (Tot: {item['xg_vivo']:.2f})</span>
+                                <span class="mrf-pill" style="background:#15803d;color:#fff;">Pre Over 1.5: {item['prob_pre']:.1f}%</span>
+                            </div>
+                        </div>
+                        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:10px;text-align:center;background:#070b14;padding:10px;border-radius:8px;">
+                            <div><small style="color:#94a3b8;">Disparos Totales</small><br><b style="font-size:15px;">{item['dl']} - {item['dv']} ({item['tt']})</b></div>
+                            <div><small style="color:#94a3b8;">Tiros al Arco (SoT)</small><br><b style="font-size:15px;color:#4ade80;">{item['al']} - {item['av']} ({item['tm']})</b></div>
+                            <div><small style="color:#94a3b8;">Tiros Dentro Área</small><br><b style="font-size:15px;color:#38bdf8;">{item['arl']} - {item['arv']} ({item['area_tot']})</b></div>
+                            <div><small style="color:#94a3b8;">Córners</small><br><b style="font-size:15px;">{item['cl']} - {item['cv']}</b></div>
+                            <div><small style="color:#94a3b8;">Proximidad Filtro 0.5</small><br><b style="font-size:15px;color:#facc15;">{item['prox_pct']}%</b></div>
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
 
-    # -------------------------------------------------------------------------
-    # PESTAÑA 2: PARTIDOS EN VIVO (ESTADÍSTICAS REALES STATPAL)
-    # -------------------------------------------------------------------------
-    with tab2:
-        st.markdown("#### 🔴 Monitor de Partidos en Vivo con Estadísticas Reales StatPal v2")
-        if not partidos_vivo_evaluados:
-            st.info("En este instante no hay partidos en juego ('in-play') dentro de las 20 ligas seleccionadas. Revisa la Pestaña 3 para Pre-Apuestas o la Pestaña 4 para la Bitácora 0.5.")
-        else:
-            for item in partidos_vivo_evaluados:
-                ev = item["ev"]
-                st.markdown(f"""
-                <div class="mrf-card-elite">
-                    <div style="display:flex;justify-content:space-between;align-items:center;">
-                        <div>
-                            {ev['badge_html']} <b style="font-size:17px;color:#ffffff;margin-left:8px;">{ev['local']} <span style="color:#4ade80;">{ev['gol_l']} - {ev['gol_v']}</span> {ev['visita']}</b>
-                            <span style="color:#cbd5e1;font-size:12.5px;margin-left:8px;">• {ev['liga_ui']}</span>
-                        </div>
-                        <div>
-                            <span class="mrf-pill" style="background:#0284c7;color:#fff;">xG Vivo: {item['xgl']:.2f} - {item['xgv']:.2f} (Tot: {item['xg_vivo']:.2f})</span>
-                            <span class="mrf-pill" style="background:#15803d;color:#fff;">Pre Over 1.5: {item['prob_pre']:.1f}%</span>
-                        </div>
-                    </div>
-                    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:10px;text-align:center;background:#070b14;padding:10px;border-radius:8px;">
-                        <div><small style="color:#94a3b8;">Disparos Totales</small><br><b style="font-size:15px;">{item['dl']} - {item['dv']} ({item['tt']})</b></div>
-                        <div><small style="color:#94a3b8;">Tiros al Arco (SoT)</small><br><b style="font-size:15px;color:#4ade80;">{item['al']} - {item['av']} ({item['tm']})</b></div>
-                        <div><small style="color:#94a3b8;">Tiros Dentro Área</small><br><b style="font-size:15px;color:#38bdf8;">{item['arl']} - {item['arv']} ({item['area_tot']})</b></div>
-                        <div><small style="color:#94a3b8;">Córners</small><br><b style="font-size:15px;">{item['cl']} - {item['cv']}</b></div>
-                        <div><small style="color:#94a3b8;">Proximidad Filtro 0.5</small><br><b style="font-size:15px;color:#facc15;">{item['prox_pct']}%</b></div>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+        # ---------------------------------------------------------------------
+        # PESTAÑA 3: PRE-APUESTAS BIG DATA (SOLO PARTIDOS NO INICIADOS NI JUGADOS)
+        # ---------------------------------------------------------------------
+        with tab3:
+            st.markdown("#### 📈 Motor Pre-Apuestas Big Data *(Solo Partidos Por Empezar — Los ya iniciados o finalizados se excluyen automáticamente)*")
+            col_f1, col_f2, col_f3 = st.columns(3)
+            with col_f1:
+                umbral_prob_o15 = st.slider("🎯 Probabilidad Mínima Over 1.5 (%)", min_value=60.0, max_value=92.0, value=74.0, step=1.0)
+            with col_f2:
+                solo_rango_bancario = st.checkbox("🏦 Solo Rango Bancario Cuota (1.05 - 1.45)", value=False)
+            with col_f3:
+                exigir_consistencia_2j = st.checkbox("🔥 Exigir que al menos 2 de los 4 juegos crudos superen el Estándar Liga", value=True)
 
-    # -------------------------------------------------------------------------
-    # PESTAÑA 3: PRE-APUESTAS BIG DATA (LOS 6 PASOS + COMPARATIVA 2 PARTIDOS)
-    # -------------------------------------------------------------------------
-    with tab3:
-        st.markdown("#### 📈 Motor Pre-Apuestas Big Data (Arquitectura Secuencial de 6 Pasos + Comparativa Cruda 2 Partidos)")
-        col_f1, col_f2, col_f3 = st.columns(3)
-        with col_f1:
-            umbral_prob_o15 = st.slider("🎯 Probabilidad Mínima Over 1.5 (%)", min_value=60.0, max_value=92.0, value=74.0, step=1.0)
-        with col_f2:
-            solo_rango_bancario = st.checkbox("🏦 Solo Rango Bancario Cuota (1.05 - 1.45)", value=False)
-        with col_f3:
-            exigir_consistencia_2j = st.checkbox("🔥 Exigir que al menos 2 de los 4 juegos crudos superen el Estándar Liga", value=True)
+            picks_o15 = []
+            picks_o25 = []
 
-        picks_o15 = []
-        picks_o25 = []
+            for ev in eventos_pre_apuestas:
+                eval_bd = evaluar_partido_big_data_completo(ev["local"], ev["visita"], ev["league_id"], sta_dict, estandares_ligas)
+                comp_l = eval_bd["comp_l"]
+                comp_v = eval_bd["comp_v"]
+                std_l = eval_bd["std_liga"]
+                tot_cumplidos = comp_l["cumplidos_2"] + comp_v["cumplidos_2"]
 
-        for ev in eventos_filtrados:
-            eval_bd = evaluar_partido_big_data_completo(ev["local"], ev["visita"], ev["league_id"], sta_dict, estandares_ligas)
-            comp_l = eval_bd["comp_l"]
-            comp_v = eval_bd["comp_v"]
-            std_l = eval_bd["std_liga"]
-            tot_cumplidos = comp_l["cumplidos_2"] + comp_v["cumplidos_2"]
+                if exigir_consistencia_2j and tot_cumplidos < 2:
+                    continue
+                if solo_rango_bancario and not eval_bd["en_rango_bancario"]:
+                    continue
 
-            if exigir_consistencia_2j and tot_cumplidos < 2:
-                continue
-            if solo_rango_bancario and not eval_bd["en_rango_bancario"]:
-                continue
+                registro_pick = {
+                    "ID": ev["id"],
+                    "Fecha": ev["fecha_iso"],
+                    "Hora": ev["hora_local"],
+                    "Liga": ev["liga_ui"],
+                    "Partido": f"{ev['local']} vs {ev['visita']}",
+                    "Local": ev["local"],
+                    "Visita": ev["visita"],
+                    "Estado": "PRE",
+                    "Marcador": "PRE",
+                    "Prob_O15": eval_bd["prob_o15"],
+                    "Prob_O25": eval_bd["prob_o25"],
+                    "Cuota_O15": eval_bd["cuota_o15"],
+                    "Cuota_Justa": eval_bd["cuota_justa"],
+                    "xG_Proy": eval_bd["xg_final"],
+                    "xG_Std_Liga": std_l["xg_partido_std"],
+                    "SoT_J1_Comb": eval_bd["sot_j1_comb"],
+                    "SoT_J2_Comb": eval_bd["sot_j2_comb"],
+                    "Big_Chances": eval_bd["big_chances_comb"],
+                    "Carniceria": eval_bd["estado_carniceria"],
+                    "Regla_Cruce": eval_bd["regla_cruce"],
+                    "Alerta_Tactica": eval_bd["alerta_tactica"],
+                    "Momentum": eval_bd["notas_momentum"],
+                    "Urgencia": eval_bd["urgencia_txt"],
+                    "Local_2J_Crudos": comp_l["texto_comparativo"],
+                    "Visita_2J_Crudos": comp_v["texto_comparativo"],
+                    "Cumplidos_4": f"{tot_cumplidos}/4 Juegos >= Std Liga",
+                    "ev_raw": ev,
+                    "eval_raw": eval_bd
+                }
 
-            registro_pick = {
-                "ID": ev["id"],
-                "Fecha": ev["fecha_iso"],
-                "Hora": ev["hora_local"],
-                "Liga": ev["liga_ui"],
-                "Partido": f"{ev['local']} vs {ev['visita']}",
-                "Local": ev["local"],
-                "Visita": ev["visita"],
-                "Estado": ev["state"],
-                "Marcador": f"{ev['gol_l']}-{ev['gol_v']}" if ev["state"] in ("in", "post") else "PRE",
-                "Prob_O15": eval_bd["prob_o15"],
-                "Prob_O25": eval_bd["prob_o25"],
-                "Cuota_O15": eval_bd["cuota_o15"],
-                "Cuota_Justa": eval_bd["cuota_justa"],
-                "xG_Proy": eval_bd["xg_final"],
-                "xG_Std_Liga": std_l["xg_partido_std"],
-                "SoT_J1_Comb": eval_bd["sot_j1_comb"],
-                "SoT_J2_Comb": eval_bd["sot_j2_comb"],
-                "Big_Chances": eval_bd["big_chances_comb"],
-                "Carniceria": eval_bd["estado_carniceria"],
-                "Regla_Cruce": eval_bd["regla_cruce"],
-                "Alerta_Tactica": eval_bd["alerta_tactica"],
-                "Momentum": eval_bd["notas_momentum"],
-                "Urgencia": eval_bd["urgencia_txt"],
-                "Local_2J_Crudos": comp_l["texto_comparativo"],
-                "Visita_2J_Crudos": comp_v["texto_comparativo"],
-                "Cumplidos_4": f"{tot_cumplidos}/4 Juegos >= Std Liga",
-                "ev_raw": ev,
-                "eval_raw": eval_bd
-            }
+                if eval_bd["prob_o15"] >= umbral_prob_o15:
+                    picks_o15.append(registro_pick)
+                if eval_bd["candidato_o25"]:
+                    picks_o25.append(registro_pick)
 
-            if eval_bd["prob_o15"] >= umbral_prob_o15:
-                picks_o15.append(registro_pick)
-            if eval_bd["candidato_o25"]:
-                picks_o25.append(registro_pick)
+            picks_o15.sort(key=lambda x: (x["Prob_O15"], x["xG_Proy"]), reverse=True)
+            picks_o25.sort(key=lambda x: (x["Prob_O25"], x["xG_Proy"]), reverse=True)
 
-        picks_o15.sort(key=lambda x: (x["Prob_O15"], x["xG_Proy"]), reverse=True)
-        picks_o25.sort(key=lambda x: (x["Prob_O25"], x["xG_Proy"]), reverse=True)
+            txt_rep = generar_reporte_oficial_txt(sh, picks_o15, picks_o25, {"total_escaneados": len(eventos_pre_apuestas)})
+            html_bol = generar_boletin_html_imprimible(sh, picks_o15, picks_o25)
 
-        # Botones de Exportación Oficial Paso 6 (TXT, CSV y Boletín HTML/PDF)
-        txt_rep = generar_reporte_oficial_txt(sh, picks_o15, picks_o25, {"total_escaneados": len(eventos_filtrados)})
-        html_bol = generar_boletin_html_imprimible(sh, picks_o15, picks_o25)
-
-        c_ex1, c_ex2, c_ex3 = st.columns(3)
-        with c_ex1:
-            st.download_button(
-                "📄 Descargar reporte_jornada_oficial.txt (Paso 6)",
-                data=txt_rep.encode("utf-8"),
-                file_name="reporte_jornada_oficial.txt",
-                mime="text/plain",
-                use_container_width=True
-            )
-        with c_ex2:
-            st.download_button(
-                "🖨️ Descargar Boletín Imprimible (HTML / PDF)",
-                data=html_bol.encode("utf-8"),
-                file_name=f"boletin_bigdata_mrfutbol_{sh}.html",
-                mime="text/html",
-                use_container_width=True
-            )
-        with c_ex3:
-            if picks_o15:
-                df_exp = pd.DataFrame([{k: v for k, v in p.items() if k not in ("ev_raw", "eval_raw")} for p in picks_o15])
+            c_ex1, c_ex2, c_ex3 = st.columns(3)
+            with c_ex1:
                 st.download_button(
-                    "📊 Exportar Tabla Pre-Apuestas (.CSV)",
-                    data=df_exp.to_csv(index=False).encode("utf-8-sig"),
-                    file_name=f"pre_apuestas_bigdata_{sh}.csv",
-                    mime="text/csv",
+                    "📄 Descargar reporte_jornada_oficial.txt (Paso 6)",
+                    data=txt_rep.encode("utf-8"),
+                    file_name="reporte_jornada_oficial.txt",
+                    mime="text/plain",
                     use_container_width=True
                 )
-
-        st.markdown(f"##### 🏆 Selección Élite Over 1.5 Goles ({len(picks_o15)} Partidos Aprobados)")
-        if not picks_o15:
-            st.warning("Ningún partido de la vista actual supera el umbral seleccionado. Puedes bajar el deslizador de probabilidad o cambiar la Jornada Operativa.")
-        else:
-            for idx, p in enumerate(picks_o15):
-                es_regla_a = "REGLA A" in p["Regla_Cruce"]
-                clase_c = "mrf-card-elite" if es_regla_a or p["Prob_O15"] >= 82.0 else "mrf-card"
-                st.markdown(f"""
-                <div class="{clase_c}">
-                    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;">
-                        <div>
-                            <span class="mrf-pill" style="background:#0f172a;color:#38bdf8;border:1px solid #0284c7;">{p['Hora']} • {p['Liga']}</span>
-                            <b style="font-size:17px;color:#ffffff;">{p['Partido']}</b>
-                            <span class="mrf-pill" style="background:#1e293b;color:#facc15;margin-left:6px;">{p['Regla_Cruce']}</span>
-                        </div>
-                        <div>
-                            <span class="mrf-pill" style="background:#15803d;color:#ffffff;font-size:13.5px;">🔥 Over 1.5: {p['Prob_O15']:.1f}%</span>
-                            <span class="mrf-pill" style="background:#0369a1;color:#ffffff;">Over 2.5: {p['Prob_O25']:.1f}%</span>
-                            <span class="mrf-pill" style="background:#334155;color:#f8fafc;">Cuota: {p['Cuota_O15']:.2f} (Justa {p['Cuota_Justa']:.2f})</span>
-                        </div>
-                    </div>
-                    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px;background:#070b14;padding:10px;border-radius:8px;font-size:12.5px;">
-                        <div><span style="color:#94a3b8;">xG Proy vs Std Liga:</span><br><b style="color:#4ade80;">{p['xG_Proy']:.2f} xG</b> <small>(Std: {p['xG_Std_Liga']:.2f})</small></div>
-                        <div><span style="color:#94a3b8;">Tiros al Arco Crudos:</span><br><b>J-1: {p['SoT_J1_Comb']} SoT | J-2: {p['SoT_J2_Comb']} SoT</b></div>
-                        <div><span style="color:#94a3b8;">Calidad Disparo (Paso 3):</span><br><b>{p['Carniceria']}</b></div>
-                        <div><span style="color:#94a3b8;">Consistencia Bitácora:</span><br><b style="color:#38bdf8;">{p['Cumplidos_4']}</b></div>
-                    </div>
-                    <div style="margin-top:8px;font-size:12px;color:#cbd5e1;padding:6px 10px;background:#090d16;border-radius:6px;">
-                        <div>🏠 <b>{p['Local']} (2J Crudos):</b> {p['Local_2J_Crudos']}</div>
-                        <div style="margin-top:3px;">✈️ <b>{p['Visita']} (2J Crudos):</b> {p['Visita_2J_Crudos']}</div>
-                        <div style="margin-top:4px;color:#94a3b8;">🧠 <b>Táctica & Momentum:</b> {p['Alerta_Tactica']} | {p['Momentum']} | {p['Urgencia']}</div>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-
-                if st.button(f"💎 Enviar a Sala VIP: {p['Partido']}", key=f"vip_btn_{p['ID']}_{idx}"):
-                    picks_vip_dict[str(p["ID"])] = {
-                        "ID": str(p["ID"]),
-                        "Fecha": p["Fecha"],
-                        "Hora": p["Hora"],
-                        "Liga": p["Liga"],
-                        "Partido": p["Partido"],
-                        "Prob_O15": p["Prob_O15"],
-                        "Cuota_O15": p["Cuota_O15"],
-                        "xG_Proy": p["xG_Proy"],
-                        "Regla": p["Regla_Cruce"],
-                        "Estado": "📌 EN SEGUIMIENTO VIP"
-                    }
-                    guardar_vip_servidor(boveda_vip)
-                    st.success(f"✅ {p['Partido']} guardado en la Sala VIP.")
-
-        with st.expander(f"🔥 Monitor Secundario Over 2.5 Goles — Paso 5 ({len(picks_o25)} Candidatos)", expanded=False):
-            if not picks_o25:
-                st.caption("Sin candidatos Over 2.5 en este filtro.")
-            else:
-                df_25 = pd.DataFrame([{
-                    "Hora": p["Hora"], "Liga": p["Liga"], "Partido": p["Partido"],
-                    "Prob Over 2.5 (%)": p["Prob_O25"], "xG Proy": p["xG_Proy"],
-                    "Big Chances Comb": p["Big_Chances"], "Calidad Disparo": p["Carniceria"]
-                } for p in picks_o25])
-                st.dataframe(df_25, use_container_width=True, hide_index=True)
-
-    # -------------------------------------------------------------------------
-    # PESTAÑA 4: TERMINAL EN VIVO OVER 0.5 + TERMÓMETRO DE PROXIMIDAD Y BITÁCORA
-    # -------------------------------------------------------------------------
-    with tab4:
-        st.markdown("#### ⚡ Terminal Quirúrgica En Vivo Over 0.5 Goles + Termómetro de Proximidad a los Filtros")
-        st.caption(
-            "Muestra en tiempo real las estadísticas de cada partido en vivo y **qué tan cerca (0% a 100%)** está de activar el gatillo Over 0.5, "
-            "respaldado por los últimos 2 partidos crudos de la Bitácora. Cuando llega al 100% en 0-0, se registra y audita solo en la Bitácora Permanente."
-        )
-
-        if not partidos_vivo_evaluados:
-            st.info("No hay partidos en vivo en este momento. Abajo puedes consultar y descargar la Bitácora Permanente Over 0.5.")
-        else:
-            # Ordenar por mayor proximidad al filtro (los que están al 100% o más cerca primero)
-            ordenados_vivo_05 = sorted(
-                partidos_vivo_evaluados,
-                key=lambda x: (1 if (x["ev"]["gol_l"] + x["ev"]["gol_v"] == 0) else 0, x["prox_pct"], x["prob_pre"]),
-                reverse=True
-            )
-            for item in ordenados_vivo_05:
-                ev = item["ev"]
-                sin_goles = (ev["gol_l"] + ev["gol_v"]) == 0
-                pct = item["prox_pct"]
-                color_barra = "#22c55e" if pct >= 100 else ("#f59e0b" if pct >= 70 else "#38bdf8")
-                card_cls = "mrf-card-elite" if (pct >= 100 and sin_goles) else ("mrf-card-hot" if (pct >= 75 and sin_goles) else "mrf-card")
-
-                estado_gol_txt = (
-                    "🚨 ¡GATILLO OVER 0.5 ACTIVADO EN 0-0! (REGISTRADO EN BITÁCORA)"
-                    if (pct >= 100 and sin_goles)
-                    else ("🔥 CALENTANDO FILTRO EN 0-0" if sin_goles else f"⚽ YA HAY GOL ({ev['gol_l']}-{ev['gol_v']}) — MONITOR OVER +0.5 ADICIONAL")
+            with c_ex2:
+                st.download_button(
+                    "🖨️ Descargar Boletín Imprimible (HTML / PDF)",
+                    data=html_bol.encode("utf-8"),
+                    file_name=f"boletin_bigdata_mrfutbol_{sh}.html",
+                    mime="text/html",
+                    use_container_width=True
                 )
+            with c_ex3:
+                if picks_o15:
+                    df_exp = pd.DataFrame([{k: v for k, v in p.items() if k not in ("ev_raw", "eval_raw")} for p in picks_o15])
+                    st.download_button(
+                        "📊 Exportar Tabla Pre-Apuestas (.CSV)",
+                        data=df_exp.to_csv(index=False).encode("utf-8-sig"),
+                        file_name=f"pre_apuestas_bigdata_{sh}.csv",
+                        mime="text/csv",
+                        use_container_width=True
+                    )
 
-                st.markdown(f"""
-                <div class="{card_cls}">
-                    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;">
-                        <div>
-                            {ev['badge_html']} <b style="font-size:17px;color:#ffffff;margin-left:8px;">{ev['local']} <span style="color:#4ade80;">{ev['gol_l']} - {ev['gol_v']}</span> {ev['visita']}</b>
-                            <span style="color:#94a3b8;font-size:12px;margin-left:8px;">({ev['liga_ui']})</span>
+            st.markdown(f"##### 🏆 Selección Élite Pre-Apuesta Over 1.5 Goles ({len(picks_o15)} Partidos Por Empezar)")
+            if not picks_o15:
+                st.info("No quedan partidos por empezar hoy con este umbral. Cambia 'Jornada Operativa' arriba a 'Mañana' o 'Hoy + Mañana' para analizar la próxima cartelera.")
+            else:
+                for idx, p in enumerate(picks_o15):
+                    es_regla_a = "REGLA A" in p["Regla_Cruce"]
+                    clase_c = "mrf-card-elite" if es_regla_a or p["Prob_O15"] >= 82.0 else "mrf-card"
+                    st.markdown(f"""
+                    <div class="{clase_c}">
+                        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;">
+                            <div>
+                                <span class="mrf-pill" style="background:#0f172a;color:#38bdf8;border:1px solid #0284c7;">{p['Fecha']} • {p['Hora']} • {p['Liga']}</span>
+                                <b style="font-size:17px;color:#ffffff;">{p['Partido']}</b>
+                                <span class="mrf-pill" style="background:#1e293b;color:#facc15;margin-left:6px;">{p['Regla_Cruce']}</span>
+                            </div>
+                            <div>
+                                <span class="mrf-pill" style="background:#15803d;color:#ffffff;font-size:13.5px;">🔥 Over 1.5: {p['Prob_O15']:.1f}%</span>
+                                <span class="mrf-pill" style="background:#0369a1;color:#ffffff;">Over 2.5: {p['Prob_O25']:.1f}%</span>
+                                <span class="mrf-pill" style="background:#334155;color:#f8fafc;">Cuota: {p['Cuota_O15']:.2f} (Justa {p['Cuota_Justa']:.2f})</span>
+                            </div>
                         </div>
-                        <div>
-                            <span class="mrf-pill" style="background:{color_barra};color:#070b14;font-size:13px;">🌡️ Proximidad al Filtro: {pct}%</span>
-                            <span class="mrf-pill" style="background:#1e293b;color:#f8fafc;">{estado_gol_txt}</span>
+                        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px;background:#070b14;padding:10px;border-radius:8px;font-size:12.5px;">
+                            <div><span style="color:#94a3b8;">xG Proy vs Std Liga:</span><br><b style="color:#4ade80;">{p['xG_Proy']:.2f} xG</b> <small>(Std: {p['xG_Std_Liga']:.2f})</small></div>
+                            <div><span style="color:#94a3b8;">Tiros al Arco Crudos:</span><br><b>J-1: {p['SoT_J1_Comb']} SoT | J-2: {p['SoT_J2_Comb']} SoT</b></div>
+                            <div><span style="color:#94a3b8;">Calidad Disparo (Paso 3):</span><br><b>{p['Carniceria']}</b></div>
+                            <div><span style="color:#94a3b8;">Consistencia Bitácora:</span><br><b style="color:#38bdf8;">{p['Cumplidos_4']}</b></div>
+                        </div>
+                        <div style="margin-top:8px;font-size:12px;color:#cbd5e1;padding:6px 10px;background:#090d16;border-radius:6px;">
+                            <div>🏠 <b>{p['Local']} (2J Crudos):</b> {p['Local_2J_Crudos']}</div>
+                            <div style="margin-top:3px;">✈️ <b>{p['Visita']} (2J Crudos):</b> {p['Visita_2J_Crudos']}</div>
+                            <div style="margin-top:4px;color:#94a3b8;">🧠 <b>Táctica & Momentum:</b> {p['Alerta_Tactica']} | {p['Momentum']} | {p['Urgencia']}</div>
                         </div>
                     </div>
-                    <div class="therm-bar-bg">
-                        <div style="width:{pct}%;background:{color_barra};height:100%;transition:width 0.4s;"></div>
-                    </div>
-                    <div style="font-size:12.5px;color:#facc15;font-weight:600;margin-bottom:8px;">
-                        {item['detalle_filtro']} &nbsp;|&nbsp;
-                        <span style="color:#38bdf8;">Tasa 1T: {item['t1']:.1f}% • Tasa 2T: {item['t2']:.1f}% • Franja 38'-HT: {item['t38']:.1f}%</span>
-                    </div>
-                    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;background:#070b14;padding:9px;border-radius:8px;text-align:center;font-size:12.5px;">
-                        <div><span style="color:#94a3b8;">Disparos (Meta ≥{item['meta_disp']})</span><br><b>{item['dl']} - {item['dv']} (Tot: {item['tt']})</b></div>
-                        <div><span style="color:#94a3b8;">Al Arco (Meta ≥{item['meta_arco']})</span><br><b style="color:#4ade80;">{item['al']} - {item['av']} (Tot: {item['tm']})</b></div>
-                        <div><span style="color:#94a3b8;">Dentro del Área</span><br><b style="color:#38bdf8;">{item['arl']} - {item['arv']} (Tot: {item['area_tot']})</b></div>
-                        <div><span style="color:#94a3b8;">xG en Vivo</span><br><b>{item['xgl']:.2f} - {item['xgv']:.2f} ({item['xg_vivo']:.2f})</b></div>
-                        <div><span style="color:#94a3b8;">Respaldo 2J Crudos</span><br><b>{item['eval_pre']['comp_l']['cumplidos_2'] + item['eval_pre']['comp_v']['cumplidos_2']}/4 >= Std Liga</b></div>
-                    </div>
-                    <div style="margin-top:6px;font-size:11.5px;color:#cbd5e1;">
-                        🧠 <b>Soporte Bitácora 2J Sin Promedios:</b> {item['resumen_2j_corto']}
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+                    """, unsafe_allow_html=True)
 
-        st.markdown("---")
-        st.markdown("#### 📓 Bitácora Permanente de Alertas En Vivo Over 0.5 (Auditoría Automática)")
-        regs_05 = list(boveda_ml_05.values())
-        ganadas_05 = sum(1 for r in regs_05 if "GANADA" in str(r.get("Estado_Apuesta_05", "")))
-        fallos_05 = sum(1 for r in regs_05 if "FALLO" in str(r.get("Estado_Apuesta_05", "")))
-        en_juego_05 = sum(1 for r in regs_05 if "EN JUEGO" in str(r.get("Estado_Apuesta_05", "")))
-        cerradas_05 = ganadas_05 + fallos_05
-        winrate_05 = round((ganadas_05 / cerradas_05) * 100.0, 1) if cerradas_05 > 0 else 100.0
+                    if st.button(f"💎 Enviar a Sala VIP: {p['Partido']}", key=f"vip_btn_{p['ID']}_{idx}"):
+                        picks_vip_dict[str(p["ID"])] = {
+                            "ID": str(p["ID"]),
+                            "Fecha": p["Fecha"],
+                            "Hora": p["Hora"],
+                            "Liga": p["Liga"],
+                            "Partido": p["Partido"],
+                            "Prob_O15": p["Prob_O15"],
+                            "Cuota_O15": p["Cuota_O15"],
+                            "xG_Proy": p["xG_Proy"],
+                            "Regla": p["Regla_Cruce"],
+                            "Estado": "📌 EN SEGUIMIENTO VIP"
+                        }
+                        guardar_vip_servidor(boveda_vip)
+                        st.success(f"✅ {p['Partido']} guardado en la Sala VIP (se limpiará automáticamente cuando el partido finalice).")
 
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Total Alertas 0.5", len(regs_05))
-        m2.metric("✅ Ganadas (Verde)", ganadas_05)
-        m3.metric("⏳ En Juego / ❌ Fallos", f"{en_juego_05} / {fallos_05}")
-        m4.metric("🎯 Efectividad Real Bitácora", f"{winrate_05:.1f}%")
+            with st.expander(f"🔥 Monitor Secundario Over 2.5 Goles — Paso 5 ({len(picks_o25)} Candidatos)", expanded=False):
+                if not picks_o25:
+                    st.caption("Sin candidatos Over 2.5 en este filtro.")
+                else:
+                    df_25 = pd.DataFrame([{
+                        "Fecha": p["Fecha"], "Hora": p["Hora"], "Liga": p["Liga"], "Partido": p["Partido"],
+                        "Prob Over 2.5 (%)": p["Prob_O25"], "xG Proy": p["xG_Proy"],
+                        "Big Chances Comb": p["Big_Chances"], "Calidad Disparo": p["Carniceria"]
+                    } for p in picks_o25])
+                    st.dataframe(df_25, use_container_width=True, hide_index=True)
 
-        pat_05 = analizar_patrones_y_regla_general_05(regs_05)
-        if pat_05:
-            st.markdown(f"""
-            <div class="mrf-card-elite" style="margin-top:8px;">
-                <b style="color:#4ade80;font-size:15px;">🧠 LABORATORIO DE PATRONES: CIRCUNSTANCIAS DONDE CAE EL GOL Y REGLA GENERALIZADA OVER 0.5</b>
-                <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:8px;background:#070b14;padding:10px;border-radius:8px;font-size:12.5px;">
-                    <div><span style="color:#94a3b8;">1. Ventana 18'-32' vs Tardía/HT:</span><br><b style="color:#4ade80;">{pat_05['wr_temprana']:.1f}% Acierto ({pat_05['n_temprana']}J)</b><br><small style="color:#f59e0b;">Tardía/45': {pat_05['wr_tardia']:.1f}% ({pat_05['n_tardia']}J)</small></div>
-                    <div><span style="color:#94a3b8;">2. Con Pre-Partido ≥ 75%:</span><br><b style="color:#38bdf8;">{pat_05['wr_pre_alta']:.1f}% Acierto ({pat_05['n_pre_alta']}J)</b><br><small>Respaldo 2J + Tabla</small></div>
-                    <div><span style="color:#94a3b8;">3. Volumen Medio al Activar:</span><br><b>{pat_05['prom_disp']} Disparos / {pat_05['prom_arco']} Arco</b><br><small>Alerta media: min {pat_05['prom_alerta']}'</small></div>
-                    <div><span style="color:#94a3b8;">4. Reloj del Gol tras Alerta:</span><br><b style="color:#facc15;">Gol al {pat_05['prom_gol']}' (+{pat_05['prom_espera']} min)</b><br><small>{pat_05['pct_1t']:.1f}% cae desde el 1T</small></div>
-                </div>
-                <div style="margin-top:8px;font-size:12.5px;color:#e2e8f0;">
-                    📌 <b>REGLA GENERALIZADA POR TU BITÁCORA:</b> El punto dulce de máxima efectividad (<b>{pat_05['wr_temprana']:.1f}%</b>) ocurre cuando el partido activa el filtro entre el <b>minuto 18' y 32'</b> acumulando <b>≥ {max(5, int(round(pat_05['prom_disp'] - 1)))} Disparos Totales y ≥ 2 Tiros al Arco</b> con respaldo Pre-Partido <b>≥ 75%</b> (el gol cae en promedio <b>+{pat_05['prom_espera']} minutos después</b> de la alerta, alrededor del <b>min {pat_05['prom_gol']}'</b>). En cambio, las alertas tardías en el <b>45' (HT)</b> con equipos empatados en tiros concentran los pocos cierres `0-0`.
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-
-        if regs_05:
-            df_bit05 = pd.DataFrame(list(reversed(regs_05)))
-            st.dataframe(df_bit05, use_container_width=True, hide_index=True)
-            st.download_button(
-                "📥 Descargar Bitácora En Vivo Over 0.5 (.CSV)",
-                data=df_bit05.to_csv(index=False).encode("utf-8-sig"),
-                file_name=f"bitacora_vivo_05_{sh}.csv",
-                mime="text/csv"
+        # ---------------------------------------------------------------------
+        # PESTAÑA 4: TERMINAL EN VIVO OVER 0.5 + TERMÓMETRO DE PROXIMIDAD Y BITÁCORA
+        # ---------------------------------------------------------------------
+        with tab4:
+            st.markdown("#### ⚡ Terminal Quirúrgica En Vivo Over 0.5 Goles + Termómetro de Proximidad a los Filtros *(Refresco en oculto cada 10s)*")
+            st.caption(
+                "Muestra en tiempo real las estadísticas de cada partido en vivo y **qué tan cerca (0% a 100%)** está de activar el gatillo Over 0.5, "
+                "respaldado por los últimos 2 partidos crudos de la Bitácora. Cuando llega al 100% en 0-0, se registra y audita solo en la Bitácora Permanente."
             )
-        else:
-            st.caption("La Bitácora En Vivo 0.5 está lista y registrará automáticamente el primer partido que alcance el 100% del filtro.")
 
-    # -------------------------------------------------------------------------
-    # PESTAÑA 5: AUDITORÍA PROFUNDA 1 A 1 + SALA VIP
-    # -------------------------------------------------------------------------
-    with tab5:
-        st.markdown("#### 🔬 Laboratorio de Auditoría Profunda 1 a 1 (Clima, Bajas, H2H y Comparativa 2 Partidos Sin Promedios)")
-        if not eventos_filtrados:
-            st.info("Selecciona una jornada con partidos para usar el Laboratorio de Auditoría Profunda.")
-        else:
-            mapa_sel = {f"[{e['hora_local']}] {e['liga_ui']} — {e['local']} vs {e['visita']}": e for e in eventos_filtrados}
-            etiqueta_sel = st.selectbox("Selecciona un partido para auditar a fondo:", options=list(mapa_sel.keys()))
-            if etiqueta_sel:
-                ev_sel = mapa_sel[etiqueta_sel]
-                aud_prof = analizar_partido_profundo_mrfutbol(ev_sel, sta_dict, estandares_ligas)
-                eb = aud_prof["eval_bd"]
-                ex = aud_prof["extras"]
-                cl = aud_prof["comp_l"]
-                cv = aud_prof["comp_v"]
-                sl = aud_prof["std_l"]
+            if not partidos_vivo_evaluados:
+                st.info("No hay partidos en vivo en este momento. Abajo puedes consultar y descargar la Bitácora Permanente Over 0.5.")
+            else:
+                ordenados_vivo_05 = sorted(
+                    partidos_vivo_evaluados,
+                    key=lambda x: (1 if (x["ev"]["gol_l"] + x["ev"]["gol_v"] == 0) else 0, x["prox_pct"], x["prob_pre"]),
+                    reverse=True
+                )
+                for item in ordenados_vivo_05:
+                    ev = item["ev"]
+                    sin_goles = (ev["gol_l"] + ev["gol_v"]) == 0
+                    pct = item["prox_pct"]
+                    color_barra = "#22c55e" if pct >= 100 else ("#f59e0b" if pct >= 70 else "#38bdf8")
+                    card_cls = "mrf-card-elite" if (pct >= 100 and sin_goles) else ("mrf-card-hot" if (pct >= 75 and sin_goles) else "mrf-card")
 
-                k1, k2, k3, k4 = st.columns(4)
-                k1.metric("Probabilidad Over 1.5", f"{aud_prof['prob_o15']:.1f}%", f"Cuota: {eb['cuota_o15']:.2f}")
-                k2.metric("Probabilidad Over 0.5 HT", f"{aud_prof['prob_o05_ht']:.1f}%", "1er Tiempo")
-                k3.metric("Probabilidad Over 2.5", f"{aud_prof['prob_o25']:.1f}%", f"BigCh: {eb['big_chances_comb']:.1f}")
-                k4.metric("xG Proyectado vs Liga", f"{eb['xg_final']:.2f} xG", f"Std Liga: {sl['xg_partido_std']:.2f}")
+                    estado_gol_txt = (
+                        "🚨 ¡GATILLO OVER 0.5 ACTIVADO EN 0-0! (REGISTRADO EN BITÁCORA)"
+                        if (pct >= 100 and sin_goles)
+                        else ("🔥 CALENTANDO FILTRO EN 0-0" if sin_goles else f"⚽ YA HAY GOL ({ev['gol_l']}-{ev['gol_v']}) — MONITOR OVER +0.5 ADICIONAL")
+                    )
 
+                    st.markdown(f"""
+                    <div class="{card_cls}">
+                        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;">
+                            <div>
+                                {ev['badge_html']} <b style="font-size:17px;color:#ffffff;margin-left:8px;">{ev['local']} <span style="color:#4ade80;">{ev['gol_l']} - {ev['gol_v']}</span> {ev['visita']}</b>
+                                <span style="color:#94a3b8;font-size:12px;margin-left:8px;">({ev['liga_ui']})</span>
+                            </div>
+                            <div>
+                                <span class="mrf-pill" style="background:{color_barra};color:#070b14;font-size:13px;">🌡️ Proximidad al Filtro: {pct}%</span>
+                                <span class="mrf-pill" style="background:#1e293b;color:#f8fafc;">{estado_gol_txt}</span>
+                            </div>
+                        </div>
+                        <div class="therm-bar-bg">
+                            <div style="width:{pct}%;background:{color_barra};height:100%;transition:width 0.4s;"></div>
+                        </div>
+                        <div style="font-size:12.5px;color:#facc15;font-weight:600;margin-bottom:8px;">
+                            {item['detalle_filtro']} &nbsp;|&nbsp;
+                            <span style="color:#38bdf8;">Tasa 1T: {item['t1']:.1f}% • Tasa 2T: {item['t2']:.1f}% • Franja 38'-HT: {item['t38']:.1f}%</span>
+                        </div>
+                        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;background:#070b14;padding:9px;border-radius:8px;text-align:center;font-size:12.5px;">
+                            <div><span style="color:#94a3b8;">Disparos (Meta ≥{item['meta_disp']})</span><br><b>{item['dl']} - {item['dv']} (Tot: {item['tt']})</b></div>
+                            <div><span style="color:#94a3b8;">Al Arco (Meta ≥{item['meta_arco']})</span><br><b style="color:#4ade80;">{item['al']} - {item['av']} (Tot: {item['tm']})</b></div>
+                            <div><span style="color:#94a3b8;">Dentro del Área</span><br><b style="color:#38bdf8;">{item['arl']} - {item['arv']} (Tot: {item['area_tot']})</b></div>
+                            <div><span style="color:#94a3b8;">xG en Vivo</span><br><b>{item['xgl']:.2f} - {item['xgv']:.2f} ({item['xg_vivo']:.2f})</b></div>
+                            <div><span style="color:#94a3b8;">Respaldo 2J Crudos</span><br><b>{item['eval_pre']['comp_l']['cumplidos_2'] + item['eval_pre']['comp_v']['cumplidos_2']}/4 >= Std Liga</b></div>
+                        </div>
+                        <div style="margin-top:6px;font-size:11.5px;color:#cbd5e1;">
+                            🧠 <b>Soporte Bitácora 2J Sin Promedios:</b> {item['resumen_2j_corto']}
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+            st.markdown("---")
+            st.markdown("#### 📓 Bitácora Permanente de Alertas En Vivo Over 0.5 (Auditoría Automática)")
+            regs_05 = list(boveda_ml_05.values())
+            ganadas_05 = sum(1 for r in regs_05 if "GANADA" in str(r.get("Estado_Apuesta_05", "")))
+            fallos_05 = sum(1 for r in regs_05 if "FALLO" in str(r.get("Estado_Apuesta_05", "")))
+            en_juego_05 = sum(1 for r in regs_05 if "EN JUEGO" in str(r.get("Estado_Apuesta_05", "")))
+            cerradas_05 = ganadas_05 + fallos_05
+            winrate_05 = round((ganadas_05 / cerradas_05) * 100.0, 1) if cerradas_05 > 0 else 100.0
+
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Total Alertas 0.5", len(regs_05))
+            m2.metric("✅ Ganadas (Verde)", ganadas_05)
+            m3.metric("⏳ En Juego / ❌ Fallos", f"{en_juego_05} / {fallos_05}")
+            m4.metric("🎯 Efectividad Real Bitácora", f"{winrate_05:.1f}%")
+
+            pat_05 = analizar_patrones_y_regla_general_05(regs_05)
+            if pat_05:
                 st.markdown(f"""
-                <div class="mrf-card">
-                    <b>🛡️ Auditoría Paso 3 y Paso 4 (StatPal API v2):</b><br>
-                    • <b>Regla de Cruce:</b> {eb['regla_cruce']}<br>
-                    • <b>Calidad de Disparo (Carnicería):</b> {eb['estado_carniceria']} | <b>Táctica:</b> {eb['alerta_tactica']}<br>
-                    • <b>Sistema Colectivo 10.5 (Últimos 5J):</b> Local ({cl['unique_scorers']} goleadores / {cl['unique_assisters']} asistentes) • Visita ({cv['unique_scorers']} goleadores / {cv['unique_assisters']} asistentes)<br>
-                    • <b>Clima:</b> {ex['clima_txt']} | <b>H2H:</b> {ex['h2h_txt']}<br>
-                    • <b>Bajas Local ({len(ex['bajas_l'])}):</b> {', '.join(ex['bajas_l'][:5]) if ex['bajas_l'] else 'Plantilla Completa'}<br>
-                    • <b>Bajas Visita ({len(ex['bajas_v'])}):</b> {', '.join(ex['bajas_v'][:5]) if ex['bajas_v'] else 'Plantilla Completa'}
+                <div class="mrf-card-elite" style="margin-top:8px;">
+                    <b style="color:#4ade80;font-size:15px;">🧠 LABORATORIO DE PATRONES: CIRCUNSTANCIAS DONDE CAE EL GOL Y REGLA GENERALIZADA OVER 0.5</b>
+                    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:8px;background:#070b14;padding:10px;border-radius:8px;font-size:12.5px;">
+                        <div><span style="color:#94a3b8;">1. Ventana 18'-32' vs Tardía/HT:</span><br><b style="color:#4ade80;">{pat_05['wr_temprana']:.1f}% Acierto ({pat_05['n_temprana']}J)</b><br><small style="color:#f59e0b;">Tardía/45': {pat_05['wr_tardia']:.1f}% ({pat_05['n_tardia']}J)</small></div>
+                        <div><span style="color:#94a3b8;">2. Con Pre-Partido ≥ 75%:</span><br><b style="color:#38bdf8;">{pat_05['wr_pre_alta']:.1f}% Acierto ({pat_05['n_pre_alta']}J)</b><br><small>Respaldo 2J + Tabla</small></div>
+                        <div><span style="color:#94a3b8;">3. Volumen Medio al Activar:</span><br><b>{pat_05['prom_disp']} Disparos / {pat_05['prom_arco']} Arco</b><br><small>Alerta media: min {pat_05['prom_alerta']}'</small></div>
+                        <div><span style="color:#94a3b8;">4. Reloj del Gol tras Alerta:</span><br><b style="color:#facc15;">Gol al {pat_05['prom_gol']}' (+{pat_05['prom_espera']} min)</b><br><small>{pat_05['pct_1t']:.1f}% cae desde el 1T</small></div>
+                    </div>
+                    <div style="margin-top:8px;font-size:12.5px;color:#e2e8f0;">
+                        📌 <b>REGLA GENERALIZADA POR TU BITÁCORA:</b> El punto dulce de máxima efectividad (<b>{pat_05['wr_temprana']:.1f}%</b>) ocurre cuando el partido activa el filtro entre el <b>minuto 18' y 32'</b> acumulando <b>≥ {max(5, int(round(pat_05['prom_disp'] - 1)))} Disparos Totales y ≥ 2 Tiros al Arco</b> con respaldo Pre-Partido <b>≥ 75%</b> (el gol cae en promedio <b>+{pat_05['prom_espera']} minutos después</b> de la alerta, alrededor del <b>min {pat_05['prom_gol']}'</b>). En cambio, las alertas tardías en el <b>45' (HT)</b> con equipos empatados en tiros concentran los pocos cierres `0-0`.
+                    </div>
                 </div>
                 """, unsafe_allow_html=True)
 
-                st.markdown("##### 📊 Comparativa Directa: Últimos 2 Partidos Como Vienen (SIN PROMEDIOS) vs Estándar de la Liga")
-                df_comp_2j = pd.DataFrame([
-                    {
-                        "Equipo / Referencia": f"📏 ESTÁNDAR LIGA ({ev_sel['liga_ui']})",
-                        "Partido": f"Muestra: {sl.get('muestra_partidos', 0)} PJ en Bitácora",
-                        "xG": sl["xg_equipo_std"],
-                        "Tiros al Arco (SoT)": sl["sot_equipo_std"],
-                        "Disparos Totales": sl["disp_equipo_std"],
-                        "Tiros en Área": round(sl["disp_equipo_std"] * 0.60, 1),
-                        "xG / Disparo": round(sl["xg_equipo_std"] / max(1.0, sl["disp_equipo_std"]), 3),
-                        "Veredicto vs Liga": "🎯 Línea Base Oficial"
-                    },
-                    {
-                        "Equipo / Referencia": f"🏠 {ev_sel['local']} (J-1 Último)",
-                        "Partido": f"{cl['j1']['raw'].get('fecha','')} vs {cl['j1']['raw'].get('rival','')} ({cl['j1']['gf']}-{cl['j1']['gc']})",
-                        "xG": cl["j1"]["xg_f"],
-                        "Tiros al Arco (SoT)": cl["j1"]["sot_f"],
-                        "Disparos Totales": cl["j1"]["disp_f"],
-                        "Tiros en Área": cl["j1"]["area_f"],
-                        "xG / Disparo": cl["j1"]["qual"],
-                        "Veredicto vs Liga": "✅ SUPERA ESTÁNDAR" if cl["j1"]["cumple"] else "❄️ BAJO ESTÁNDAR"
-                    },
-                    {
-                        "Equipo / Referencia": f"🏠 {ev_sel['local']} (J-2 Penúltimo)",
-                        "Partido": f"{cl['j2']['raw'].get('fecha','')} vs {cl['j2']['raw'].get('rival','')} ({cl['j2']['gf']}-{cl['j2']['gc']})",
-                        "xG": cl["j2"]["xg_f"],
-                        "Tiros al Arco (SoT)": cl["j2"]["sot_f"],
-                        "Disparos Totales": cl["j2"]["disp_f"],
-                        "Tiros en Área": cl["j2"]["area_f"],
-                        "xG / Disparo": cl["j2"]["qual"],
-                        "Veredicto vs Liga": "✅ SUPERA ESTÁNDAR" if cl["j2"]["cumple"] else "❄️ BAJO ESTÁNDAR"
-                    },
-                    {
-                        "Equipo / Referencia": f"✈️ {ev_sel['visita']} (J-1 Último)",
-                        "Partido": f"{cv['j1']['raw'].get('fecha','')} vs {cv['j1']['raw'].get('rival','')} ({cv['j1']['gf']}-{cv['j1']['gc']})",
-                        "xG": cv["j1"]["xg_f"],
-                        "Tiros al Arco (SoT)": cv["j1"]["sot_f"],
-                        "Disparos Totales": cv["j1"]["disp_f"],
-                        "Tiros en Área": cv["j1"]["area_f"],
-                        "xG / Disparo": cv["j1"]["qual"],
-                        "Veredicto vs Liga": "✅ SUPERA ESTÁNDAR" if cv["j1"]["cumple"] else "❄️ BAJO ESTÁNDAR"
-                    },
-                    {
-                        "Equipo / Referencia": f"✈️ {ev_sel['visita']} (J-2 Penúltimo)",
-                        "Partido": f"{cv['j2']['raw'].get('fecha','')} vs {cv['j2']['raw'].get('rival','')} ({cv['j2']['gf']}-{cv['j2']['gc']})",
-                        "xG": cv["j2"]["xg_f"],
-                        "Tiros al Arco (SoT)": cv["j2"]["sot_f"],
-                        "Disparos Totales": cv["j2"]["disp_f"],
-                        "Tiros en Área": cv["j2"]["area_f"],
-                        "xG / Disparo": cv["j2"]["qual"],
-                        "Veredicto vs Liga": "✅ SUPERA ESTÁNDAR" if cv["j2"]["cumple"] else "❄️ BAJO ESTÁNDAR"
-                    }
-                ])
-                st.dataframe(df_comp_2j, use_container_width=True, hide_index=True)
+            if regs_05:
+                df_bit05 = pd.DataFrame(list(reversed(regs_05)))
+                st.dataframe(df_bit05, use_container_width=True, hide_index=True)
+                st.download_button(
+                    "📥 Descargar Bitácora En Vivo Over 0.5 (.CSV)",
+                    data=df_bit05.to_csv(index=False).encode("utf-8-sig"),
+                    file_name=f"bitacora_vivo_05_{sh}.csv",
+                    mime="text/csv"
+                )
+            else:
+                st.caption("La Bitácora En Vivo 0.5 está lista y registrará automáticamente el primer partido que alcance el 100% del filtro.")
 
-        st.markdown("---")
-        st.markdown("#### 💎 Sala VIP de Seguimiento")
-        if picks_vip_dict:
-            st.dataframe(pd.DataFrame(list(picks_vip_dict.values())), use_container_width=True, hide_index=True)
-        else:
-            st.caption("Usa el botón '💎 Enviar a Sala VIP' en la Pestaña 3 para fijar tus partidos favoritos aquí.")
+        # ---------------------------------------------------------------------
+        # PESTAÑA 5: AUDITORÍA PROFUNDA 1 A 1 + SALA VIP (SOLO VIGENTES)
+        # ---------------------------------------------------------------------
+        with tab5:
+            st.markdown("#### 🔬 Laboratorio de Auditoría Profunda 1 a 1 *(Solo Partidos Vigentes — Los finalizados se retiran solos)*")
+            if not eventos_cartelera_vigentes:
+                st.info("No quedan partidos pendientes en la jornada actual. Selecciona 'Mañana' o 'Hoy + Mañana' arriba para auditar los próximos partidos.")
+            else:
+                mapa_sel = {f"[{e['fecha_iso']} {e['hora_local']}] {e['liga_ui']} — {e['local']} vs {e['visita']}": e for e in eventos_cartelera_vigentes}
+                etiqueta_sel = st.selectbox("Selecciona un partido vigente para auditar a fondo:", options=list(mapa_sel.keys()))
+                if etiqueta_sel:
+                    ev_sel = mapa_sel[etiqueta_sel]
+                    aud_prof = analizar_partido_profundo_mrfutbol(ev_sel, sta_dict, estandares_ligas)
+                    eb = aud_prof["eval_bd"]
+                    ex = aud_prof["extras"]
+                    cl = aud_prof["comp_l"]
+                    cv = aud_prof["comp_v"]
+                    sl = aud_prof["std_l"]
+
+                    k1, k2, k3, k4 = st.columns(4)
+                    k1.metric("Probabilidad Over 1.5", f"{aud_prof['prob_o15']:.1f}%", f"Cuota: {eb['cuota_o15']:.2f}")
+                    k2.metric("Probabilidad Over 0.5 HT", f"{aud_prof['prob_o05_ht']:.1f}%", "1er Tiempo")
+                    k3.metric("Probabilidad Over 2.5", f"{aud_prof['prob_o25']:.1f}%", f"BigCh: {eb['big_chances_comb']:.1f}")
+                    k4.metric("xG Proyectado vs Liga", f"{eb['xg_final']:.2f} xG", f"Std Liga: {sl['xg_partido_std']:.2f}")
+
+                    st.markdown(f"""
+                    <div class="mrf-card">
+                        <b>🛡️ Auditoría Paso 3 y Paso 4 (StatPal API v2):</b><br>
+                        • <b>Regla de Cruce:</b> {eb['regla_cruce']}<br>
+                        • <b>Calidad de Disparo (Carnicería):</b> {eb['estado_carniceria']} | <b>Táctica:</b> {eb['alerta_tactica']}<br>
+                        • <b>Sistema Colectivo 10.5 (Últimos 5J):</b> Local ({cl['unique_scorers']} goleadores / {cl['unique_assisters']} asistentes) • Visita ({cv['unique_scorers']} goleadores / {cv['unique_assisters']} asistentes)<br>
+                        • <b>Clima:</b> {ex['clima_txt']} | <b>H2H:</b> {ex['h2h_txt']}<br>
+                        • <b>Bajas Local ({len(ex['bajas_l'])}):</b> {', '.join(ex['bajas_l'][:5]) if ex['bajas_l'] else 'Plantilla Completa'}<br>
+                        • <b>Bajas Visita ({len(ex['bajas_v'])}):</b> {', '.join(ex['bajas_v'][:5]) if ex['bajas_v'] else 'Plantilla Completa'}
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    st.markdown("##### 📊 Comparativa Directa: Últimos 2 Partidos Como Vienen (SIN PROMEDIOS) vs Estándar de la Liga")
+                    df_comp_2j = pd.DataFrame([
+                        {
+                            "Equipo / Referencia": f"📏 ESTÁNDAR LIGA ({ev_sel['liga_ui']})",
+                            "Partido": f"Muestra: {sl.get('muestra_partidos', 0)} PJ en Bitácora",
+                            "xG": sl["xg_equipo_std"],
+                            "Tiros al Arco (SoT)": sl["sot_equipo_std"],
+                            "Disparos Totales": sl["disp_equipo_std"],
+                            "Tiros en Área": round(sl["disp_equipo_std"] * 0.60, 1),
+                            "xG / Disparo": round(sl["xg_equipo_std"] / max(1.0, sl["disp_equipo_std"]), 3),
+                            "Veredicto vs Liga": "🎯 Línea Base Oficial"
+                        },
+                        {
+                            "Equipo / Referencia": f"🏠 {ev_sel['local']} (J-1 Último)",
+                            "Partido": f"{cl['j1']['raw'].get('fecha','')} vs {cl['j1']['raw'].get('rival','')} ({cl['j1']['gf']}-{cl['j1']['gc']})",
+                            "xG": cl["j1"]["xg_f"],
+                            "Tiros al Arco (SoT)": cl["j1"]["sot_f"],
+                            "Disparos Totales": cl["j1"]["disp_f"],
+                            "Tiros en Área": cl["j1"]["area_f"],
+                            "xG / Disparo": cl["j1"]["qual"],
+                            "Veredicto vs Liga": "✅ SUPERA ESTÁNDAR" if cl["j1"]["cumple"] else "❄️ BAJO ESTÁNDAR"
+                        },
+                        {
+                            "Equipo / Referencia": f"🏠 {ev_sel['local']} (J-2 Penúltimo)",
+                            "Partido": f"{cl['j2']['raw'].get('fecha','')} vs {cl['j2']['raw'].get('rival','')} ({cl['j2']['gf']}-{cl['j2']['gc']})",
+                            "xG": cl["j2"]["xg_f"],
+                            "Tiros al Arco (SoT)": cl["j2"]["sot_f"],
+                            "Disparos Totales": cl["j2"]["disp_f"],
+                            "Tiros en Área": cl["j2"]["area_f"],
+                            "xG / Disparo": cl["j2"]["qual"],
+                            "Veredicto vs Liga": "✅ SUPERA ESTÁNDAR" if cl["j2"]["cumple"] else "❄️ BAJO ESTÁNDAR"
+                        },
+                        {
+                            "Equipo / Referencia": f"✈️ {ev_sel['visita']} (J-1 Último)",
+                            "Partido": f"{cv['j1']['raw'].get('fecha','')} vs {cv['j1']['raw'].get('rival','')} ({cv['j1']['gf']}-{cv['j1']['gc']})",
+                            "xG": cv["j1"]["xg_f"],
+                            "Tiros al Arco (SoT)": cv["j1"]["sot_f"],
+                            "Disparos Totales": cv["j1"]["disp_f"],
+                            "Tiros en Área": cv["j1"]["area_f"],
+                            "xG / Disparo": cv["j1"]["qual"],
+                            "Veredicto vs Liga": "✅ SUPERA ESTÁNDAR" if cv["j1"]["cumple"] else "❄️ BAJO ESTÁNDAR"
+                        },
+                        {
+                            "Equipo / Referencia": f"✈️ {ev_sel['visita']} (J-2 Penúltimo)",
+                            "Partido": f"{cv['j2']['raw'].get('fecha','')} vs {cv['j2']['raw'].get('rival','')} ({cv['j2']['gf']}-{cv['j2']['gc']})",
+                            "xG": cv["j2"]["xg_f"],
+                            "Tiros al Arco (SoT)": cv["j2"]["sot_f"],
+                            "Disparos Totales": cv["j2"]["disp_f"],
+                            "Tiros en Área": cv["j2"]["area_f"],
+                            "xG / Disparo": cv["j2"]["qual"],
+                            "Veredicto vs Liga": "✅ SUPERA ESTÁNDAR" if cv["j2"]["cumple"] else "❄️ BAJO ESTÁNDAR"
+                        }
+                    ])
+                    st.dataframe(df_comp_2j, use_container_width=True, hide_index=True)
+
+            st.markdown("---")
+            st.markdown("#### 💎 Sala VIP de Seguimiento *(Se limpia automáticamente al finalizar cada partido)*")
+            if picks_vip_dict:
+                st.dataframe(pd.DataFrame(list(picks_vip_dict.values())), use_container_width=True, hide_index=True)
+                if st.button("🗑️ Vaciar Sala VIP Manualmente"):
+                    picks_vip_dict.clear()
+                    guardar_vip_servidor(boveda_vip)
+                    st.rerun()
+            else:
+                st.caption("Usa el botón '💎 Enviar a Sala VIP' en la Pestaña 3 para fijar tus partidos favoritos aquí. Los partidos ya finalizados se retiran solos.")
+
+    # Ejecutar en oculto cada 10 segundos usando st.fragment nativo de Streamlit (sin recargar toda la página como F5)
+    frag_decorator = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
+    if auto_refresco_oculto and frag_decorator is not None:
+        frag_decorator(run_every=timedelta(seconds=10))(_cuerpo_operativo_tiempo_real)()
+    else:
+        _cuerpo_operativo_tiempo_real()
+        if auto_refresco_oculto:
+            time.sleep(10)
+            st.rerun()
 
 renderizar_central_mrfutbol()
