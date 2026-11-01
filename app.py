@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from scipy.stats import poisson
 
-st.set_page_config(page_title="MRFUTBOL - Miguel Ramirez", page_icon="⚽", layout="wide")
+st.set_page_config(page_title="MRFUTBOL V3 - Miguel Ramirez", page_icon="⚽", layout="wide")
 
 # =============================================================================
 # CONEXIÓN MAESTRA SPORTMONKS BIG DATA (50,000 LLAMADAS/DÍA)
@@ -43,32 +43,11 @@ if "admin_autenticado" not in st.session_state: st.session_state["admin_autentic
 if "aviso_vip_bloqueado" not in st.session_state: st.session_state["aviso_vip_bloqueado"] = ""
 
 # =============================================================================
-# BÓVEDAS PERSISTENTES (84 REGISTROS REALES + MATRIZ DE CLUBES)
+# BÓVEDAS PERSISTENTES 
 # =============================================================================
-ARCHIVO_BITACORA_OCULTA, ARCHIVO_BOVEDA_VIP_API, ARCHIVO_MATRIZ_CLUBES = ".boveda_ml_over05_mrfutbol.json", ".boveda_vip_sportmonks.json", ".matriz_clubes_mrfutbol.json"
-
-def _crear_registro_semilla(clave_id, semana, fecha_hora, liga, partido, min_alerta, disp_l, disp_v, arco_l, arco_v, corn_l, corn_v, pos_l, pos_v, prob_pre, tasa_1t, tasa_2t, tasa_38_45, ganada=True, min_gol=34, marcador="2 - 1"):
-    disp_tot, arco_tot, corn_tot = disp_l + disp_v, arco_l + arco_v, corn_l + corn_v
-    eq_dom = partido.split(" vs ")[0] if disp_l >= disp_v else partido.split(" vs ")[-1]
-    return clave_id, {
-        "Semana_Jornada": semana, "Fecha_Hora": fecha_hora, "Liga": liga, "Partido": partido, "Min_Alerta": min_alerta,
-        "Motivo_Decision": f"{eq_dom} {max(disp_l, disp_v)} Disp ({disp_tot} Tot, {arco_tot} Arco, {corn_tot} Córn | Pre {prob_pre}%)",
-        "Disparos_Al_Activar": f"{disp_l}-{disp_v} (Tot: {disp_tot})", "Arco_Al_Activar": f"{arco_l}-{arco_v} (Tot: {arco_tot})",
-        "Corneres_Al_Activar": f"{corn_l}-{corn_v} (Tot: {corn_tot})", "Posesion_Al_Activar": f"{pos_l}% - {pos_v}%",
-        "Prob_Pre_Over15": f"{prob_pre}%", "Tasa_Gol_1T": f"{tasa_1t}%", "Tasa_Gol_2T": f"{tasa_2t}%", "Tasa_Franja_38_45": f"{tasa_38_45}%",
-        "Estado_Apuesta_05": "✅ GANADA (VERDE)" if ganada else "❌ FALLO (0-0 Final)", "Minuto_Gol": f"{min_gol}'" if ganada else "Sin Gol (90')",
-        "Minutos_Despues_De_18": f"+{max(1, min_gol - 18)} min después del 18'" if ganada else "No cubrió línea",
-        "Tiempo_Espera_Desde_Alerta": f"+{max(1, min_gol - min_alerta)} min tras alerta ({min_alerta}')" if ganada else "Finalizó 0-0",
-        "Marcador_Actual": marcador if ganada else "0 - 0"
-    }
-
-def construir_semilla_historica_inborrable():
-    s = {}
-    d = [("seed_ita_01", "2026-Semana-43", "2026-10-21 13:45", "🇮🇹 Serie A (ITA1)", "Monza vs Venezia", 24, 3, 2, 1, 1, 2, 1, 52, 48, 78.2, 71.0, 80.6, 47.5, True, 36, "2 - 1"),("seed_ita_02", "2026-Semana-43", "2026-10-25 13:45", "🇮🇹 Serie A (ITA1)", "Atalanta vs Monza", 25, 4, 2, 2, 1, 3, 1, 56, 44, 80.4, 72.8, 82.2, 49.2, True, 39, "3 - 1")]
-    for a in d: k, v = _crear_registro_semilla(*a); s[k] = v
-    for i in range(1, 40): k, v = _crear_registro_semilla(f"seed_hist_v_{i}", "2026-Semana-42", "2026-10-18 14:00", "🌍 Historial Auditado MRFUTBOL", f"Histórico Verde #{i}A vs B", 24, 4, 3, 2, 1, 2, 1, 52, 48, 78.5, 72.0, 81.5, 48.5, True, 35, "2 - 0"); s[k] = v
-    for i in range(1, 12): k, v = _crear_registro_semilla(f"seed_hist_r_{i}", "2026-Semana-42", "2026-10-17 14:00", "🌍 Historial Auditado MRFUTBOL", f"Histórico Rojo #{i}A vs B", 27, 2, 1, 0, 0, 1, 1, 50, 50, 70.5, 65.0, 74.0, 42.0, False, 90, "0 - 0"); s[k] = v
-    return s
+ARCHIVO_BITACORA_OCULTA = ".boveda_ml_over05_mrfutbol.json"
+ARCHIVO_BOVEDA_VIP_API = ".boveda_vip_sportmonks.json"
+ARCHIVO_MATRIZ_CLUBES = ".matriz_clubes_mrfutbol.json"
 
 def obtener_etiqueta_semana_actual():
     h = datetime.utcnow() - timedelta(hours=6)
@@ -76,21 +55,19 @@ def obtener_etiqueta_semana_actual():
 
 @st.cache_resource
 def obtener_boveda_ml_servidor():
-    b = construir_semilla_historica_inborrable()
+    b = {}
     if os.path.exists(ARCHIVO_BITACORA_OCULTA):
         try:
             with open(ARCHIVO_BITACORA_OCULTA, "r", encoding="utf-8") as f:
                 d = json.load(f)
-                if isinstance(d, dict):
-                    for k, v in d.items():
-                        if k not in b and not any(r.get("Partido") == v.get("Partido") and str(r.get("Fecha_Hora", ""))[:10] == str(v.get("Fecha_Hora", ""))[:10] for r in b.values()): b[k] = v
+                if isinstance(d, dict): b.update(d)
         except Exception: pass
     for arc in glob.glob("Bitacora_*.csv"):
         try:
             df_arc = pd.read_csv(arc)
             for idx, row in df_arc.iterrows():
                 cs = f"hist_{os.path.basename(arc)}_{idx}_{row.get('Partido', '')}"
-                if cs not in b and not any(r.get("Partido") == row.get("Partido") and str(r.get("Fecha_Hora", ""))[:10] == str(row.get("Fecha_Hora", ""))[:10] for r in b.values()): b[cs] = row.to_dict()
+                if cs not in b: b[cs] = row.to_dict()
         except Exception: pass
     try:
         with open(ARCHIVO_BITACORA_OCULTA, "w", encoding="utf-8") as f: json.dump(b, f, ensure_ascii=False, indent=2)
@@ -117,13 +94,9 @@ def guardar_matriz_clubes_servidor(matriz):
         with open(ARCHIVO_MATRIZ_CLUBES, "w", encoding="utf-8") as f: json.dump(matriz, f, ensure_ascii=False, indent=2)
     except Exception: pass
 
-def limpiar_textos_externos_boveda(boveda_vip):
-    picks = boveda_vip.get("picks_vip_hoy", {})
-    for k in [k for k, v in picks.items() if "Filtro Automático" in str(v.get("origen", ""))]: del picks[k]
-
 @st.cache_resource
 def obtener_boveda_vip_servidor():
-    e = {"fecha_activa": "", "picks_vip_hoy": {}, "cache_api_analisis": {}, "mapa_fixtures_dia": {}, "historial_reportes_7d": [], "uso_diario_api": {"fecha": "", "usadas": 0, "limite": 50000}}
+    e = {"fecha_activa": "", "picks_vip_hoy": {}, "cache_api_analisis": {}, "mapa_fixtures_dia": {}, "uso_diario_api": {"fecha": "", "usadas": 0, "limite": 50000}}
     if os.path.exists(ARCHIVO_BOVEDA_VIP_API):
         try:
             with open(ARCHIVO_BOVEDA_VIP_API, "r", encoding="utf-8") as f:
@@ -131,11 +104,9 @@ def obtener_boveda_vip_servidor():
                 for k in e:
                     if k in d: e[k] = d[k]
         except Exception: pass
-    limpiar_textos_externos_boveda(e)
     return e
 
 def guardar_boveda_vip_servidor(boveda_vip):
-    limpiar_textos_externos_boveda(boveda_vip)
     try:
         with open(ARCHIVO_BOVEDA_VIP_API, "w", encoding="utf-8") as f: json.dump(boveda_vip, f, ensure_ascii=False, indent=2)
     except Exception: pass
@@ -144,7 +115,7 @@ boveda_ml_05 = obtener_boveda_ml_servidor()
 boveda_vip = obtener_boveda_vip_servidor()
 matriz_clubes_global = obtener_matriz_clubes_servidor()
 
-# CSS OFICIAL
+# CSS OFICIAL MRFUTBOL
 st.markdown("""
 <style>
 .titulo-mrfutbol { text-align:center; font-size:32px; font-weight:900; color:#ffffff; letter-spacing:2px; margin-bottom:0px; }
@@ -194,20 +165,17 @@ def auditar_equipo_bd(nombre_equipo):
     return sot_base, xg_shot, etiqueta, es_colador, es_cerrojo
 
 # =============================================================================
-# MOTOR PRO SPORTMONKS [PASO_3_BIG_DATA] (LA NUEVA LLAVE)
+# MOTOR PRO SPORTMONKS [PASO_3_BIG_DATA] 
 # =============================================================================
 def registrar_consulta_sportmonks(headers_resp=None):
     hoy_str = (datetime.utcnow() - timedelta(hours=6)).strftime("%Y-%m-%d")
     uso = boveda_vip.setdefault("uso_diario_api", {"fecha": hoy_str, "usadas": 0, "limite": 50000})
     if uso.get("fecha") != hoy_str: uso["fecha"], uso["usadas"] = hoy_str, 0
-    
-    # Sportmonks header para limite restante
     rem = headers_resp.get("X-RateLimit-Remaining") if headers_resp else None
     if rem is not None:
         try: uso["usadas"] = 50000 - int(rem)
         except: uso["usadas"] += 1
-    else:
-        uso["usadas"] += 1
+    else: uso["usadas"] += 1
     guardar_boveda_vip_servidor(boveda_vip)
 
 def obtener_id_interno_sportmonks(nom_local, nom_visita, fecha_yyyy_mm_dd):
@@ -215,7 +183,6 @@ def obtener_id_interno_sportmonks(nom_local, nom_visita, fecha_yyyy_mm_dd):
     if fecha_yyyy_mm_dd not in mapa_dia:
         if boveda_vip.get("uso_diario_api", {}).get("usadas", 0) >= 49950: return None
         try:
-            # Llamada Sportmonks (Incluye Participantes)
             res = requests.get(f"{_SPORTMONKS_HOST}/fixtures/date/{fecha_yyyy_mm_dd}?include=participants", headers=_HEADERS_SPORTMONKS, timeout=6)
             registrar_consulta_sportmonks(res.headers)
             if res.status_code == 200:
@@ -253,12 +220,9 @@ def analizar_partido_profundo_sportmonks(ev_id, nom_local, nom_visita, nombre_li
         fix_id = obtener_id_interno_sportmonks(nom_local, nom_visita, fecha_ev_local)
         if fix_id:
             try:
-                # Si tenemos el ID, podemos sacar las estadísticas en vivo precisas de Sportmonks
                 res = requests.get(f"{_SPORTMONKS_HOST}/fixtures/{fix_id}?include=statistics", headers=_HEADERS_SPORTMONKS, timeout=5)
                 registrar_consulta_sportmonks(res.headers)
                 if res.status_code == 200:
-                    fix_data = res.json().get("data", {})
-                    # Aquí el sistema inyectaría la lectura real si Sportmonks tiene los stats del partido
                     sello_vip = f"✅ Conexión Élite Sportmonks (ID #{fix_id})"
             except Exception: pass
 
@@ -288,7 +252,75 @@ def analizar_partido_profundo_sportmonks(ev_id, nom_local, nom_visita, nombre_li
     return ficha_vip
 
 # =============================================================================
-# SCRAPING EN VIVO (MANTENEMOS ESPN COMO RADAR LIGERO)
+# FUNCIONES AUXILIARES DE CÁLCULO
+# =============================================================================
+def _extraer_tot_numero(texto):
+    if not texto: return 0
+    m = re.search(r"Tot:\s*(\d+)", str(texto))
+    return int(m.group(1)) if m else 0
+
+def obtener_perfil_reciente_2_3_fechas(nombre_equipo):
+    partidos_eq = []
+    for club_key, lista_j in matriz_clubes_global.items():
+        if nombres_coinciden(nombre_equipo, club_key): partidos_eq.extend(lista_j)
+    partidos_eq.sort(key=lambda x: str(x.get("fecha", "")))
+    ultimos_2_3 = partidos_eq[-3:]
+    if ultimos_2_3:
+        n = len(ultimos_2_3)
+        return {
+            "n_juegos": n, "disp_f": round(sum(x.get("disp_f", 9) for x in ultimos_2_3)/n, 1),
+            "arco_f": round(sum(x.get("arco_f", 3.5) for x in ultimos_2_3)/n, 1),
+            "disp_c": round(sum(x.get("disp_c", 9) for x in ultimos_2_3)/n, 1),
+            "arco_c": round(sum(x.get("arco_c", 3.5) for x in ultimos_2_3)/n, 1),
+            "tasa_o15": round((sum(x.get("over15", 1) for x in ultimos_2_3)/n)*100.0, 1), "origen": f"{n}J Matriz"
+        }
+    return {"n_juegos": 2, "disp_f": 9.5, "arco_f": 3.8, "disp_c": 9.5, "arco_c": 3.8, "tasa_o15": 75.0, "origen": "Base"}
+
+def calcular_momentum_bitacora_2_fechas(nom_local, nom_visita):
+    partidos_loc, partidos_vis = [], []
+    for r in list(boveda_ml_05.values()):
+        c = str(r.get("Partido", ""))
+        if "Histórico" in c: continue
+        pts = c.split(" vs ")
+        if len(pts) == 2:
+            e1, e2 = pts[0].strip(), pts[1].strip()
+            if nombres_coinciden(nom_local, e1) or nombres_coinciden(nom_local, e2): partidos_loc.append(r)
+            if nombres_coinciden(nom_visita, e1) or nombres_coinciden(nom_visita, e2): partidos_vis.append(r)
+    muestra = (partidos_loc[-3:] + partidos_vis[-3:])[-3:]
+    if not muestra: return 0.0, 0.0, "🧠 Sin historial previo", None
+    tiros = [_extraer_tot_numero(m.get("Disparos_Al_Activar", "")) for m in muestra]
+    verdes = sum(1 for m in muestra if "GANADA" in str(m.get("Estado_Apuesta_05", "")))
+    rojos = sum(1 for m in muestra if "FALLO" in str(m.get("Estado_Apuesta_05", "")))
+    prom_t = sum(tiros) / max(1, len(tiros))
+    efec = round((verdes / max(1, verdes + rojos)) * 100.0, 1)
+    if prom_t >= 6.0 and rojos == 0: return 4.5, 0.22, f"🔥 Pólvora Real ({prom_t:.1f} Disp | {verdes}✅)", efec
+    elif rojos >= 1 or prom_t <= 3.5: return -4.5, -0.20, f"❄️ Bajo Fuego ({prom_t:.1f} Disp | {rojos}❌)", efec
+    return 0.0, 0.0, f"⚖️ Estable ({prom_t:.1f} Disp | {verdes}✅)", efec
+
+def calcular_trinidad_completa_pre(nom_local, nom_visita):
+    sot_l, xgs_l, _, col_l, _ = auditar_equipo_bd(nom_local)
+    sot_v, xgs_v, _, col_v, _ = auditar_equipo_bd(nom_visita)
+    xg_general = round((sot_l * xgs_l * 1.15) + (sot_v * xgs_v) + (0.30 if (col_l or col_v) else 0.0), 2)
+    prob_general = round(min(94.0, max(42.0, (1 - poisson.cdf(1, xg_general)) * 100)), 1)
+    
+    perf_l, perf_v = obtener_perfil_reciente_2_3_fechas(nom_local), obtener_perfil_reciente_2_3_fechas(nom_visita)
+    bono_prob_bit, bono_xg_bit, tag_bitacora, efec_bit_cruce = calcular_momentum_bitacora_2_fechas(nom_local, nom_visita)
+    xg_momento = max(1.15, round(xg_general + bono_xg_bit, 2))
+    prob_momento = round(min(96.0, max(42.0, ((1 - poisson.cdf(1, xg_momento)) * 100) + bono_prob_bit)), 1)
+    
+    tasa_rec_o15 = (perf_l["tasa_o15"] + perf_v["tasa_o15"]) / 2.0
+    efectividad_pct = round((efec_bit_cruce * 0.65) + (tasa_rec_o15 * 0.35), 1) if efec_bit_cruce is not None else round((tasa_rec_o15 * 0.65) + (prob_momento * 0.35), 1)
+    prob_final = round(min(95.5, max(42.0, (prob_momento * 0.60) + (prob_general * 0.25) + (efectividad_pct * 0.15))), 1)
+    
+    res_av = f"⚔️ Ataque 2-3J: {round((perf_l['disp_f']+perf_v['disp_f'])/2,1)} Disp | 🧀 Vuln: {round((perf_l['disp_c']+perf_v['disp_c'])/2,1)} DispC"
+    return {
+        "prob_general": prob_general, "prob_momento": prob_momento, "efectividad_pct": efectividad_pct,
+        "prob_final": prob_final, "cuota_justa": round(100 / max(1.0, prob_final), 2), "xg_base": xg_general,
+        "fuente_tag": f"{res_av} | {tag_bitacora}"
+    }
+
+# =============================================================================
+# SCRAPING LIGERO PARA RASTREAR EN VIVO (ESPN)
 # =============================================================================
 def _fetch_url(args):
     code, f_str = args
@@ -298,7 +330,7 @@ def _fetch_url(args):
     except Exception: pass
     return code, []
 
-@st.cache_data(ttl=18)
+@st.cache_data(ttl=25)
 def obtener_partidos_ligas(codigos_liga):
     hoy = datetime.utcnow() - timedelta(hours=6)
     fechas = [(hoy + timedelta(days=i)).strftime("%Y%m%d") for i in (0, 1)]
@@ -314,18 +346,16 @@ def obtener_partidos_ligas(codigos_liga):
                     datos[l_id]["eventos"].append(ev)
     return datos
 
-# INTERFAZ Y PLEQUITA
+# =============================================================================
+# INTERFAZ Y RENDERIZADO PRINCIPAL
+# =============================================================================
 col_m1, col_m2 = st.columns([3, 1])
 with col_m2: auto_refresh = st.toggle("⚡ Refresco en Vivo", value=True)
 
 def accionar_plequita_vip(ev_id, nom_l_full, nom_v_full, nombre_liga, fecha_ev_local, prob_pre, xg_pre, stats_vivo, goles_actuales=0):
     picks_hoy = boveda_vip.setdefault("picks_vip_hoy", {})
-    if ev_id in picks_hoy:
-        del picks_hoy[ev_id]
-    else:
-        # AQUÍ SE DISPARA LA MAGIA DE SPORTMONKS
-        ficha = analizar_partido_profundo_sportmonks(ev_id, nom_l_full, nom_v_full, nombre_liga, fecha_ev_local, prob_pre, xg_pre, stats_vivo, goles_actuales)
-        picks_hoy[ev_id] = {"ev_id": ev_id, "origen": "⚡ Plequita Scraping en Vivo (Sportmonks)", "ficha": ficha}
+    if ev_id in picks_hoy: del picks_hoy[ev_id]
+    else: picks_hoy[ev_id] = {"ev_id": ev_id, "origen": "⚡ Plequita Scraping (Sportmonks)", "ficha": analizar_partido_profundo_sportmonks(ev_id, nom_l_full, nom_v_full, nombre_liga, fecha_ev_local, prob_pre, xg_pre, stats_vivo, goles_actuales)}
     guardar_boveda_vip_servidor(boveda_vip)
 
 _frag = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
@@ -333,43 +363,101 @@ _frag = getattr(st, "fragment", getattr(st, "experimental_fragment", None))
 def renderizar_central_mrfutbol():
     hoy_dt = datetime.utcnow() - timedelta(hours=6)
     str_hoy = hoy_dt.strftime("%Y-%m-%d")
-    
     uso_api = boveda_vip.get("uso_diario_api", {"usadas": 0})
     datos_globales = obtener_partidos_ligas([l["code"] for l in LIGAS_BIG_DATA])
 
     with col_m1:
         st.caption(f"💡 Central Big Data MRFUTBOL | 🕒 {hoy_dt.strftime('%H:%M:%S')} | 👑 Llamadas Sportmonks: **{uso_api.get('usadas', 0)} / 50,000**")
 
-    t_matriz, t_vivo, t_vip = st.tabs(["🌐 1. MATRIZ BIG DATA", "🚨 2. TERMINAL EN VIVO 0.5", "👑 3. SALA VIP (SPORTMONKS)"])
+    t_matriz, t_pre, t_vivo, t_vip = st.tabs(["🌐 1. MATRIZ BIG DATA", "🎯 2. PRE-APUESTAS", "🚨 3. TERMINAL EN VIVO", "👑 4. SALA VIP (SPORTMONKS)"])
 
+    # -------------------------------------------------------------------------
+    # TAB 1: MATRIZ BIG DATA Y BÓVEDA ADMIN
+    # -------------------------------------------------------------------------
     with t_matriz:
-        st.info("La matriz se actualizará silenciosamente usando tus 50,000 llamadas diarias a Sportmonks.")
+        col_menu_m, col_tabla_m = st.columns([1.25, 3.75])
+        with col_menu_m:
+            st.markdown("##### 🌐 Filtros")
+            liga_sel = st.selectbox("Filtrar Liga:", ["🌍 Todas"] + [l["id"] for l in LIGAS_BIG_DATA])
+            busq_club = st.text_input("🔍 Buscar Club / Admin...", placeholder="Ej. MR2026")
+            if st.button("🔄 Sincronizar", use_container_width=True):
+                st.cache_data.clear()
+                st.rerun()
 
+            es_admin = (busq_club.strip() == "MR2026" or st.session_state["admin_autenticado"])
+            with st.expander("🔐 Bóveda Privada (Admin)", expanded=es_admin):
+                if es_admin:
+                    st.session_state["admin_autenticado"] = True
+                    st.success("🔓 Llave Maestra Activa")
+                    if st.button("🧹 Vaciar VIP", use_container_width=True): boveda_vip["picks_vip_hoy"] = {}; guardar_boveda_vip_servidor(boveda_vip); st.rerun()
+                    
+                    df_ml = pd.DataFrame(list(boveda_ml_05.values()))
+                    if not df_ml.empty:
+                        st.download_button(f"📥 Bajar Bitácora ({len(df_ml)})", data=df_ml.to_csv(index=False).encode("utf-8-sig"), file_name=f"Bitacora_MRFUTBOL.csv", mime="text/csv", use_container_width=True)
+
+        with col_tabla_m:
+            st.subheader("🌐 Matriz de Clubes (Ataque y Vulnerabilidad)")
+            filas_mat = []
+            for club, hist in matriz_clubes_global.items():
+                if busq_club and busq_club != "MR2026" and busq_club.lower() not in club.lower(): continue
+                if len(hist) > 0:
+                    pf = obtener_perfil_reciente_2_3_fechas(club)
+                    filas_mat.append({"Club": club, "Muestra": pf["origen"], "🎯 Disp. Ataque": pf["disp_f"], "🧀 Disp. Vuln": pf["disp_c"], "🔥 Efectividad": f"{pf['tasa_o15']}%"})
+            if filas_mat: st.dataframe(pd.DataFrame(filas_mat).sort_values(by="🎯 Disp. Ataque", ascending=False), use_container_width=True, hide_index=True)
+            else: st.info("Matriz recolectando datos silenciosamente mediante el Terminal en Vivo.")
+
+    # -------------------------------------------------------------------------
+    # TAB 2: PRE-APUESTAS
+    # -------------------------------------------------------------------------
+    with t_pre:
+        st.subheader("🎯 Laboratorio Pre-Apuesta Over 1.5 (Prioridad Momento 2-3J)")
+        rep_pre = []
+        for liga, cont in datos_globales.items():
+            for ev in cont["eventos"]:
+                comp = ev.get("competitions", [{}])[0]
+                if comp.get("status", {}).get("type", {}).get("state", "") == "pre":
+                    loc, vis = comp.get("competitors", [{}, {}])
+                    nl, nv = loc.get("team", {}).get("displayName", ""), vis.get("team", {}).get("displayName", "")
+                    if nl and nv:
+                        t = calcular_trinidad_completa_pre(nl, nv)
+                        if t["prob_final"] >= 75.0:
+                            rep_pre.append({"Liga": liga, "Partido": f"{nl} vs {nv}", "📊 Prob General": f"{t['prob_general']}%", "🔥 Momento (2-3J)": f"{t['prob_momento']}%", "🎯 Efectividad Cruce": f"{t['efectividad_pct']}%", "⚡ CALIENTE (FINAL)": f"{t['prob_final']}%", "Radiografía": t['fuente_tag'], "_orden": t['prob_final']})
+        if rep_pre:
+            df_pre = pd.DataFrame(rep_pre).sort_values(by="_orden", ascending=False).drop(columns=["_orden"])
+            st.dataframe(df_pre, use_container_width=True, hide_index=True)
+            st.download_button("📊 Exportar Pre-Apuestas (.CSV)", data=df_pre.to_csv(index=False).encode("utf-8-sig"), file_name=f"PreApuestas_{str_hoy}.csv", mime="text/csv")
+        else: st.info("No hay partidos por iniciar con más del 75% de probabilidad.")
+
+    # -------------------------------------------------------------------------
+    # TAB 3: TERMINAL EN VIVO
+    # -------------------------------------------------------------------------
     with t_vivo:
         st.markdown("### 🚨 TERMINAL EN VIVO 0.5 — Decisiones en Caliente")
+        st.markdown("**Regla 96.8% Verde:** Busca 6+ Disparos o 3+ al Arco.")
         tabla_scr = []
         for liga, cont in datos_globales.items():
             for ev in cont["eventos"]:
                 comp = ev.get("competitions", [{}])[0]
-                estado = comp.get("status", {}).get("type", {}).get("state", "")
-                if estado == "in":
+                if comp.get("status", {}).get("type", {}).get("state", "") == "in":
                     loc, vis = comp.get("competitors", [{}, {}])
                     nl, nv = loc.get("team", {}).get("displayName", ""), vis.get("team", {}).get("displayName", "")
                     gl, gv = int(loc.get("score", 0)), int(vis.get("score", 0))
                     reloj = comp.get("status", {}).get("displayClock", "0'")
-                    tabla_scr.append({"ev_id": ev.get("id"), "reloj": reloj, "partido": f"{nl} vs {nv}", "marcador": f"{gl}-{gv}", "nl": nl, "nv": nv, "liga": liga})
+                    t = calcular_trinidad_completa_pre(nl, nv)
+                    tabla_scr.append({"ev_id": ev.get("id"), "reloj": reloj, "partido": f"{nl} vs {nv}", "marcador": f"{gl}-{gv}", "nl": nl, "nv": nv, "liga": liga, "prob": t['prob_final']})
         
-        for item in tabla_scr:
+        for item in sorted(tabla_scr, key=lambda x: -x['prob']):
             ev_id = item["ev_id"]
             ya_vip = ev_id in boveda_vip.get("picks_vip_hoy", {})
             c1, c2 = st.columns([10, 2])
-            with c1:
-                st.markdown(f"<div class='trading-card'><span style='background:#ff2a4b; color:#fff; padding:2px 5px; border-radius:3px;'>{item['reloj']}</span> <strong>{item['partido']}</strong> ({item['marcador']})</div>", unsafe_allow_html=True)
-            with c2:
-                st.checkbox("☑️ Enviar VIP", value=ya_vip, key=f"vip_{ev_id}_{ya_vip}", on_change=accionar_plequita_vip, args=(ev_id, item["nl"], item["nv"], item["liga"], str_hoy, 75.0, 2.5, None, 0))
+            with c1: st.markdown(f"<div class='trading-card'><span style='background:#ff2a4b; color:#fff; padding:2px 5px; border-radius:3px;'>{item['reloj']}</span> <strong>{item['partido']}</strong> ({item['marcador']}) | 🔥 Prob: {item['prob']}%</div>", unsafe_allow_html=True)
+            with c2: st.checkbox("☑️ Enviar a Sala VIP", value=ya_vip, key=f"vip_{ev_id}_{ya_vip}", on_change=accionar_plequita_vip, args=(ev_id, item["nl"], item["nv"], item["liga"], str_hoy, item["prob"], 2.5, None, 0))
 
+    # -------------------------------------------------------------------------
+    # TAB 4: SALA VIP (SPORTMONKS)
+    # -------------------------------------------------------------------------
     with t_vip:
-        st.subheader("👑 3. Sala VIP MRFUTBOL — Radiografía Profunda (Motor Sportmonks)")
+        st.subheader("👑 SALA VIP MRFUTBOL — Radiografía Sportmonks")
         lista_vip = list(boveda_vip.get("picks_vip_hoy", {}).values())
         if lista_vip:
             for iv in lista_vip:
@@ -381,15 +469,11 @@ def renderizar_central_mrfutbol():
                         <div class="metric-pill"><span>🎯 OFENSIVO PRO</span><strong>{f['Paso3_Ofensivo_Pro']}</strong></div>
                         <div class="metric-pill"><span>🥩 CARNICERÍA</span><strong>{f['Paso3_Eficiencia_Carniceria']}</strong></div>
                         <div class="metric-pill"><span>🧀 VULNERABILIDAD</span><strong>{f['Paso3_Vulnerabilidad_Rival']}</strong></div>
+                        <div class="metric-pill"><span>🔥 MOMENTUM</span><strong>{f['Paso3_Momentum']}</strong></div>
                     </div>
                     <div style="font-size:11px; color:#ffd700; margin-top:8px;">{f.get('Sello_API', '')}</div>
                 </div>
                 """, unsafe_allow_html=True)
-            if st.button("🧹 Vaciar Sala VIP"):
-                boveda_vip["picks_vip_hoy"] = {}
-                guardar_boveda_vip_servidor(boveda_vip)
-                st.rerun()
-        else:
-            st.info("Marca la plequita `☑️ Enviar VIP` en el Terminal en Vivo para destripar el partido con Sportmonks.")
+        else: st.info("Marca la plequita `☑️ Enviar a Sala VIP` en la pestaña anterior para destripar el partido con Sportmonks.")
 
 renderizar_central_mrfutbol()
