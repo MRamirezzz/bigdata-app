@@ -268,7 +268,7 @@ def obtener_boveda_vip_servidor():
         "cache_api_analisis": {},
         "mapa_fixtures_dia": {},
         "historial_reportes_7d": [],
-        "uso_diario_api": {"fecha": "", "usadas": 0, "limite": 50000}
+        "uso_diario_api": {"fecha": "", "usadas": 0, "limite": 100}
     }
     if os.path.exists(ARCHIVO_BOVEDA_VIP_API):
         try:
@@ -625,7 +625,7 @@ HEADERS_BROWSER = {
 def normalizar_nombre(texto):
     if not texto:
         return ""
-    txt = unicodedata.normalize("NFKD", str(texto)).encode("ASCII", "ignore").decode("utf-8").lower()
+    txt = unicodedata.normalize("NFKD", texto).encode("ASCII", "ignore").decode("utf-8").lower()
     for palabra in ["fc", "cf", "sc", "ac", "cd", "club", "deportivo", "real", "sporting", "united", "city"]:
         txt = txt.replace(f" {palabra} ", " ").replace(f"^{palabra} ", "").replace(f" {palabra}$", "")
     return txt.strip()
@@ -767,6 +767,10 @@ def analizar_partido_profundo_mrfutbol(
     ev_id, nom_local, nom_visita, nombre_liga, fecha_ev_local,
     prob_pre, xg_base, stats_vivo, stats_temporada, st_f2=None, goles_actuales=0
 ):
+    """
+    SE EJECUTA ÚNICAMENTE CUANDO EL JEFE ACTIVA LA PLEQUITA MANUALMENTE.
+    100% Marca Blanca MRFUTBOL (Cero menciones a proveedores externos).
+    """
     cache_api = boveda_vip.setdefault("cache_api_analisis", {})
     if ev_id in cache_api and "Paso3_Ofensivo_Pro" in cache_api[ev_id]:
         ficha_guardada = cache_api[ev_id]
@@ -1104,6 +1108,34 @@ def obtener_estadisticas_temporada_reales(codigos_liga):
             eficiencias_ligas[code] = efec_real
     return tabla_global, eficiencias_ligas
 
+def auditar_equipo_bd(nombre_equipo):
+    sot_base = 4.9
+    xg_shot = 0.115
+    etiqueta = "Estándar"
+    es_colador = False
+    es_cerrojo = False
+
+    for k, val in TOP_DISPARADORES.items():
+        if k.lower() in nombre_equipo.lower():
+            sot_base = val["sot"]
+            xg_shot = val["xg_shot"]
+            etiqueta = val["tag"]
+            break
+
+    for col in DEFENSAS_COLADOR:
+        if col.lower() in nombre_equipo.lower():
+            es_colador = True
+            etiqueta = "🧀 Defensa Colador" if etiqueta == "Estándar" else etiqueta + " / 🧀 Colador"
+            break
+
+    for cer in BLOQUES_CERROJO:
+        if cer.lower() in nombre_equipo.lower():
+            es_cerrojo = True
+            etiqueta = "🧱 Bloque Bajo"
+            break
+
+    return sot_base, xg_shot, etiqueta, es_colador, es_cerrojo
+
 def calcular_pre_poisson_real(nom_local, nom_visita, stats_temporada):
     sot_l, xgs_l, tag_l, col_l, cer_l = auditar_equipo_bd(nom_local)
     sot_v, xgs_v, tag_v, col_v, cer_v = auditar_equipo_bd(nom_visita)
@@ -1158,84 +1190,43 @@ def calcular_tasas_tiempos_y_franja(xg_total_pre, disparos_tot, tiros_arco, corn
 
     return tasa_1t, tasa_2t, tasa_38_45
 
-def extraer_primer_minuto_gol(detalles_partido, min_actual_fallback):
-    minutos_goles = []
-    for d in detalles_partido:
-        if d.get("scoringPlay", False):
-            clk = str(d.get("clock", {}).get("displayValue", ""))
+def extraer_stat(team_dict, stat_names):
+    for st_item in team_dict.get("statistics", []):
+        if st_item.get("name") in stat_names:
             try:
-                m_int = int(clk.replace("'", "").split("+")[0])
-                minutos_goles.append(m_int)
+                val = st_item.get("displayValue", "0").replace("%", "").strip()
+                return float(val) if "." in val else int(val)
             except Exception:
-                pass
-    if minutos_goles:
-        return min(minutos_goles)
-    return max(1, min_actual_fallback)
+                return 0
+    return 0
 
-def actualizar_bitacora_oculta_over05(
-    ev_id, nombre_liga, nombre_cruce, st_state, es_ht, min_num,
-    goles_tot, stats, prob_pre, tasa_1t, tasa_2t, tasa_38_45,
-    senal_activada, motivo_senal, detalles_partido
-):
-    hubo_cambio = False
-    ahora_dt = datetime.utcnow() - timedelta(hours=6)
-    ahora_str = ahora_dt.strftime("%Y-%m-%d %H:%M")
-    etiqueta_semana, _ = obtener_etiqueta_semana_actual()
-
-    if senal_activada and goles_tot == 0 and min_num >= 18 and ev_id not in boveda_ml_05:
-        boveda_ml_05[ev_id] = {
-            "Semana_Jornada": etiqueta_semana,
-            "Fecha_Hora": ahora_str,
-            "Liga": nombre_liga,
-            "Partido": nombre_cruce,
-            "Min_Alerta": min_num,
-            "Motivo_Decision": motivo_senal,
-            "Disparos_Al_Activar": f"{stats['toth_l']}-{stats['toth_v']} (Tot: {stats['toth_tot']})",
-            "Arco_Al_Activar": f"{stats['tmeta_l']}-{stats['tmeta_v']} (Tot: {stats['tmeta_tot']})",
-            "Corneres_Al_Activar": f"{stats['esquinas_l']}-{stats['esquinas_v']} (Tot: {stats['esquinas_tot']})",
-            "Posesion_Al_Activar": f"{stats['pos_l']}% - {stats['pos_v']}%",
-            "Prob_Pre_Over15": f"{prob_pre}%",
-            "Tasa_Gol_1T": f"{tasa_1t}%",
-            "Tasa_Gol_2T": f"{tasa_2t}%",
-            "Tasa_Franja_38_45": f"{tasa_38_45}%",
-            "Estado_Apuesta_05": "⏳ EN CURSO (0-0)",
-            "Minuto_Gol": "Pendiente",
-            "Minutos_Despues_De_18": "Pendiente",
-            "Tiempo_Espera_Desde_Alerta": "Pendiente",
-            "Marcador_Actual": "0 - 0"
-        }
-        hubo_cambio = True
-
-    if ev_id in boveda_ml_05:
-        reg = boveda_ml_05[ev_id]
-        if "Semana_Jornada" not in reg:
-            reg["Semana_Jornada"] = etiqueta_semana
-        if goles_tot >= 1 and str(reg.get("Estado_Apuesta_05", "")).startswith("⏳"):
-            min_gol = extraer_primer_minuto_gol(detalles_partido, min_num)
-            min_despues_18 = max(1, min_gol - 18)
-            min_desde_alerta = max(1, min_gol - int(reg.get("Min_Alerta", 18)))
-            reg["Estado_Apuesta_05"] = "✅ GANADA (VERDE)"
-            reg["Minuto_Gol"] = f"{min_gol}'"
-            reg["Minutos_Despues_De_18"] = f"+{min_despues_18} min después del 18'"
-            reg["Tiempo_Espera_Desde_Alerta"] = f"+{min_desde_alerta} min tras alerta ({reg.get('Min_Alerta', 18)}')"
-            hubo_cambio = True
-        elif st_state == "post" and goles_tot == 0 and reg.get("Estado_Apuesta_05") != "❌ FALLO (0-0 Final)":
-            reg["Estado_Apuesta_05"] = "❌ FALLO (0-0 Final)"
-            reg["Minuto_Gol"] = "Sin Gol (90')"
-            reg["Minutos_Despues_De_18"] = "No cubrió línea"
-            reg["Tiempo_Espera_Desde_Alerta"] = "Finalizó 0-0"
-            hubo_cambio = True
-
-    if hubo_cambio:
-        guardar_boveda_ml_servidor(boveda_ml_05)
+def extraer_metricas_partido_reales(loc, vis):
+    toth_l = int(extraer_stat(loc, ["totalShots", "shots"]))
+    toth_v = int(extraer_stat(vis, ["totalShots", "shots"]))
+    
+    tmeta_l = int(extraer_stat(loc, ["shotsOnTarget", "shotsOnGoal"]))
+    tmeta_v = int(extraer_stat(vis, ["shotsOnTarget", "shotsOnGoal"]))
+    
+    tfuera_l = max(0, toth_l - tmeta_l)
+    tfuera_v = max(0, toth_v - tmeta_v)
+    
+    esquinas_l = int(extraer_stat(loc, ["wonCorners", "corners", "cornerKicks"]))
+    esquinas_v = int(extraer_stat(vis, ["wonCorners", "corners", "cornerKicks"]))
+    
+    pos_l = extraer_stat(loc, ["possessionPct"])
+    pos_v = extraer_stat(vis, ["possessionPct"])
+    if pos_l == 0 and pos_v == 0:
+        pos_l, pos_v = 50, 50
+    
+    return {
+        "toth_l": toth_l, "toth_v": toth_v, "toth_tot": toth_l + toth_v,
+        "tmeta_l": tmeta_l, "tmeta_v": tmeta_v, "tmeta_tot": tmeta_l + tmeta_v,
+        "tfuera_l": tfuera_l, "tfuera_v": tfuera_v, "tfuera_tot": tfuera_l + tfuera_v,
+        "esquinas_l": esquinas_l, "esquinas_v": esquinas_v, "esquinas_tot": esquinas_l + esquinas_v,
+        "pos_l": pos_l, "pos_v": pos_v
+    }
 
 def evaluar_gatillo_quirurgico_05(prob_pre, toth_tot, max_disp_equipo, tmeta_tot, min_num, tasa_38_45):
-    """
-    Aplica el Manual Táctico MRFUTBOL:
-    - Zona Verde (>=75%): gatillo flexible.
-    - Zona Amarilla (70% - 74.9%): exige al menos 5 disparos totales o 2 tiros a puerta con dominio.
-    - Zona Roja (<70%): exige fuerza bruta (>=6 disparos totales o >=5 con >=2 al arco). Ignora córneres sin tiros.
-    """
     if prob_pre >= 75.0:
         return (
             max_disp_equipo >= 3
