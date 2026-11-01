@@ -1681,7 +1681,7 @@ def renderizar_central_mrfutbol():
             df_scr = pd.DataFrame([{k: v for k, v in fila.items() if not k.startswith("_")} for fila in tabla_scraping])
             with st.expander("📋 Ver Tabla Completa y Descargar Reporte en Vivo", expanded=False):
                 st.dataframe(df_scr, use_container_width=True, hide_index=True)
-                st.download_button("("📊 Exportar Señales en Vivo (.CSV)", data=df_scr.to_csv(index=False).encode("utf-8-sig"), file_name=f"Senales_EnVivo_MRFUTBOL_{str_hoy}.csv", mime="text/csv", use_container_width=True)
+                st.download_button("📊 Exportar Señales en Vivo (.CSV)", data=df_scr.to_csv(index=False).encode("utf-8-sig"), file_name=f"Senales_EnVivo_MRFUTBOL_{str_hoy}.csv", mime="text/csv", use_container_width=True)
         else:
             st.info("No hay partidos en vivo en este preciso instante en las 20 ligas.")
 
